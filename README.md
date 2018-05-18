@@ -5,6 +5,7 @@ SO Project made by:
 	- Miguel Carvalho
 
 And brought you by:
+
 	- RedBull
 	- GitHub
 	- The Willingness to pass the semester

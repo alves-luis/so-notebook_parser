@@ -12,7 +12,7 @@
 #define ARGS 100
 #define ARG_SIZE 100
 
-char* read_from_file_and_delete (char* path_to_file) {
+char* read_from_file (char* path_to_file) {
   int byte_count;
 
   int pipe_fd[2];
@@ -30,20 +30,20 @@ char* read_from_file_and_delete (char* path_to_file) {
     read(pipe_fd[0], str, sizeof(str));
     close(pipe_fd[0]);
     sscanf(str, "%d", &byte_count);
-    printf("Bytes: %d\n", byte_count);
+    // printf("Bytes: %d\n", byte_count);
   }
 
   int fd;
   if ((fd = open(path_to_file, O_RDONLY, 0666)) < 0) {
-    perror("Couldn't open file specified!");
+    char str_err[strlen(path_to_file) + 20];
+    sprintf(str_err, "Couldn't open file: %s", path_to_file);
+    perror(str_err);
     _exit(-1);
   }
   
   char* contents = malloc(sizeof(char)*(byte_count));
   read(fd, contents, byte_count);
   contents[byte_count] = 0;
-
-  remove(path_to_file);
 
   return contents;
 }
@@ -85,21 +85,21 @@ void execute_single_command (char* command) {
   }
 }
 
-void create_pipe(char* prefix, int no_pipe, char** pipe_storage) {
-  char path_to_pipe[strlen(prefix) + 11];
-  sprintf(path_to_pipe, "%s%d", prefix, no_pipe);
+void create_pipe(char* prefix, int no_pipe, char** pipe_storage, int no_comm) {
+  char path_to_pipe[strlen(prefix) + 22];
+  sprintf(path_to_pipe, "%s_%d_%d", prefix, no_comm, no_comm+1);
   mkfifo(path_to_pipe, 0666);
   pipe_storage[no_pipe] = malloc(sizeof(char) * strlen(path_to_pipe));
   strcpy(pipe_storage[no_pipe], path_to_pipe);
 }
 
 int execute_maybe_piped_between_pos (char* commands[], int begin, int end, char* output_path) {
-  char pipe_prefix[] = "/tmp/SO_PIPE_";
+  char pipe_prefix[] = "/tmp/SO_PIPE";
   
-  char** pipes = malloc(sizeof(char) * (strlen(pipe_prefix) + 11) * (end-begin+1));
+  char* pipes[end-begin];
 
-  for(int i=begin; i <= end; i++) {
-    if (i != end) create_pipe(pipe_prefix, i, pipes);
+  for(int i=0; i <= end-begin; i++) {
+    if (i != end-begin) create_pipe(pipe_prefix, i, pipes, i+begin);
     int fdw, fdr;
     
     switch (fork()) {
@@ -112,19 +112,19 @@ int execute_maybe_piped_between_pos (char* commands[], int begin, int end, char*
           dup2(fdr, 0);
           close(fdr);
         }
-        if (i != end) {
+        if (i != end-begin) {
           fdw = open(pipes[i], O_CREAT|O_WRONLY|O_TRUNC, 0666);
           //printf("Pipe open for write: %s\n", pipes[i]);
           dup2(fdw, 1);
           close(fdw);
-          execute_single_command(commands[i]);
+          execute_single_command(commands[i+begin]);
           _exit(-1);
         } else {
-          fdw = open(output_path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+          fdw = open(output_path, O_CREAT|O_WRONLY|O_APPEND, 0666);
           //printf("Outputs open for write: %s\n", pipes[i]);
           dup2(fdw, 1);
           close(fdw);
-          execute_single_command(commands[i]);
+          execute_single_command(commands[i+begin]);
           _exit(-1);
         }
       default:
@@ -134,25 +134,57 @@ int execute_maybe_piped_between_pos (char* commands[], int begin, int end, char*
 
   while(wait(NULL) > 0);
 
-  for (int i=begin; i<end; i++) {
+  for (int i=0; i<end-begin; i++) {
     unlink(pipes[i]);
     free(pipes[i]);
-    free(pipes);
+    //free(pipes);
   }
 
   return(0);
 }
 
-int execute_commands (char** commands, int begin, int end) {
-  char out_prefix[] = "./SO_OUTPUT";
+void append_to_file (char* file_path, char* str_to_append) {
+  int fd = open(file_path, O_CREAT|O_WRONLY|O_APPEND, 0666);
+  write(fd, str_to_append, strlen(str_to_append));
+  close(fd);
+}
+
+int next_line (char* text) {
+  for (int i=0; i<strlen(text); i++)
+    if (text[i] == '\n' || i+1 == strlen(text))
+      return i+1;
+  
+  return -1;
+}
+
+int read_lines_append (char* contents, char* output_path) {
+  int bytes = 0;
+  for (int i=0; i<2; i++)
+    bytes += next_line(contents+ bytes);
+
+  char temp[bytes];
+  strncpy(temp, contents, bytes);
+  puts("::::::::::::::::::::::::");
+  printf("%s", temp);
+
+  append_to_file(output_path, temp);
+
+  if (contents[bytes] == '>') puts("It's already processed!");
+
+  return bytes;
+}
+
+int execute_commands (char** commands, char* content_file, char* output_path, int begin, int end) {
+  int pos_content = 0;
+
   for (int i=begin; i <= end; i++) {
-    char output_path[strlen(out_prefix) + 21];
-    sprintf(output_path, "%s_%d", out_prefix, i);
-    puts(commands[i]);
+    pos_content += read_lines_append(content_file + pos_content, output_path);
+    append_to_file(output_path, ">>>\n");
     execute_maybe_piped_between_pos(commands, begin, i, output_path);
+    append_to_file(output_path, "<<<\n");
   }
 
-  return 0;
+  return pos_content;
 }
 
 int count_commands (char* commands) {
@@ -182,36 +214,33 @@ char* get_command (char* command_str, int* pipe) {
   return command;
 }
 
-int next_line (char* text) {
-  for (int i=0; i<strlen(text); i++)
-    if (text[i] == '\n' && i+1 != strlen(text))
-      return i+1;
-  
-  return -1;
-}
-
-int parse_and_execute (char* commands) {
+int parse_and_execute (char* commands, char* initial_path, char* final_path) {
   int n_comm = count_commands(commands);
   char* commands_parsed[n_comm];
   int command_start[n_comm];
 
   for (int i=0, begin=0; i<n_comm; i++) {
     commands_parsed[i] = get_command(commands + begin, &command_start[i]);
-    printf("Piped: %d\nBytes: %d\nCommand: %s\n", command_start[i], begin, commands_parsed[i]);
+    // printf("Piped: %d\nBytes: %d\nCommand: %s\n", command_start[i], begin, commands_parsed[i]);
     begin += next_line(commands + begin);
   }
 
-  int begin=0, end;
+  char* file_content = read_from_file(initial_path);
+  
+  int begin=0, end, pos_content=0;
   while (begin < n_comm) {
     if (command_start[begin]) {
       for(end=begin+1; end<n_comm; end++)
         if (command_start[end]) break;
-      printf("Begin: %d; End: %d\n", begin, end-1);
-      execute_commands(commands_parsed, begin, end-1);
+      // printf("Begin: %d; End: %d\n", begin, end-1);
+      pos_content += execute_commands(commands_parsed, file_content+pos_content, final_path, begin, end-1);
       begin = end;
     }
   }
 
+
+  for (int i=0; i<n_comm; i++)
+    free(commands_parsed[i]);
   return 0;
 }
 
@@ -220,7 +249,9 @@ int process_notebook(char* file_path) {
   
   int fd_nb;
   if ((fd_nb = open(file_path, O_RDONLY, 0666)) < 0) {
-    perror("Couldn't open file specified!");
+    char str_err[strlen(file_path) + 20];
+    sprintf(str_err, "Couldn't open file: %s", file_path);
+    perror(str_err);
     return(1);
   }
 
@@ -228,40 +259,34 @@ int process_notebook(char* file_path) {
   sprintf(cm1, "grep '^\\$' %s > %s", file_path, commands_path);
   system(cm1);
   
-  char* commands = read_from_file_and_delete(commands_path);
-  
-  puts(commands);
+  char* commands = read_from_file(commands_path);
+  remove(commands_path);
 
-  // return parse_and_execute(commands);^
-  return 1;
+  // puts(commands);
+
+  char final_path[] = "/tmp/FINAL_NB.nb";
+
+  int ret = parse_and_execute(commands, file_path, final_path);
+  free(commands);
+
+  /*char* final_text = read_from_file(final_path);
+  int fd = open(file_path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+  write(fd, final_text, strlen(final_text));
+  close(fd);
+  free(final_text);
+
+  remove(final_path);
+*/
+  return ret;
+  // return 1;
 }
 
 int main (int argc, char* argv[]) {
   if (argc == 2) {
-    process_notebook(argv[1]);
+    return process_notebook(argv[1]);
   } else {
-    char* str[5];
-    str[0] = "ls";
-    str[1] = "sort";
-    str[2] = "head -1";
-    str[3] = "wc -c";
-    printf("1st command: %s\n", str[0]);
-    printf("2nd command: %s\n", str[1]);
-    printf("3rd command: %s\n", str[2]);
-    printf("4th command: %s\n", str[3]);
-    //execute_(str, 0, 3);
-    execute_maybe_piped_between_pos(str, 0, 0, "./SO_OUTPUT_0");
-    execute_maybe_piped_between_pos(str, 0, 1, "./SO_OUTPUT_1");
-    execute_maybe_piped_between_pos(str, 0, 2, "./SO_OUTPUT_2");
-    execute_maybe_piped_between_pos(str, 0, 3, "./SO_OUTPUT_3");
-    //char commands[] = "$ ls\n$| sort\n$| head -1\n$| wc -c";
-    //char *command;
-    //int n = get_command("$| head -1", &command);
-    //parse_and_execute(commands);
-    // puts("You either haven't specified a file path or you've input too many!");
-
-    return 1;
+    puts("Please execute the program and provide a path to the notebook!");
   }
 
-  return 0;
+  return 1;
 }
