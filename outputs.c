@@ -313,6 +313,21 @@ int write_in_input_pipes (char* path_prefix, COMMAND c, char* buffer) {
     return 0;
 }
 
+int write_in_file (char* path_prefix, COMMAND c, char* buffer) {
+  int fdw;
+  char* path_to_file = get_path_output(path_prefix, c->index);
+  if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+    char str_err[strlen(path_to_file) + 20];
+    sprintf(str_err, "Couldn't open file: %s", path_to_file);
+    perror(str_err);
+    return -1;
+  } else {
+    write(fdw, buffer, BUFFER_SIZE);
+    close(fdw);
+  }
+  return 0;
+}
+
 int output_pipe_to_input_pipes (char* path_prefix, COMMAND c) {
   char* path_to_output_pipe = get_path_output(path_prefix, c->index);
   mkfifo(path_to_output_pipe, 0666);
@@ -324,8 +339,10 @@ int output_pipe_to_input_pipes (char* path_prefix, COMMAND c) {
     return -1;
   } else {
     char* buffer = malloc(sizeof(char)*BUFFER_SIZE);
-    while (read (fdr, buffer, BUFFER_SIZE) < 0)
+    while (read (fdr, buffer, BUFFER_SIZE) < 0) {
       write_in_input_pipes(path_prefix, c, buffer);
+      write_in_file("/tmp/Final", c, buffer);
+    }
     close(fdr);
   }
   free(path_to_output_pipe);
