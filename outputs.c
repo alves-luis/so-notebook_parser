@@ -221,9 +221,15 @@ int count_commands (char* commands) {
   return count;
 }
 
-char* get_path(char* path, int index_from, int index_to) {
+char* get_path_input(char* path, int index_from, int index_to) {
   char* full_path = malloc(sizeof(char) * (strlen(path) + 22));
   sprintf(full_path, "%s_%d_%d", path, index_from, index_to);
+  return full_path;
+}
+
+char* get_path_output(char* path, int index) {
+  char* full_path = malloc(sizeof(char) * (strlen(path) + 11));
+  sprintf(full_path, "%s_%d", path, index);
   return full_path;
 }
 
@@ -286,38 +292,85 @@ char* execute_command_return_output (char* command, int index, char* path_prefix
 }
 
 int duplicate_pipe (char* path_prefix, int index, int input_index) {
-  char* path_to_pipe = get_path(path_prefix, input_index, index);
-  /*mkfifo(path_to_pipe, 0666);
-  int fdr;
-  if ((fdr = open(path_to_pipe, O_RDONLY, 0666)) < 0) {
-    char str_err[strlen(path_to_pipe) + 20];
-    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+  char* path_to_pipe_main_input = get_path_output(path_prefix, input_index);
+  char* path_to_pipe_lonely_input = get_path_input(path_prefix, input_index, index);
+  mkfifo(path_to_pipe_lonely_input, 0666);
+  int fdr, fdw;
+  if ((fdr = open(path_to_pipe_main_input, O_RDONLY, 0666)) < 0 ||
+      (fdw = open(path_to_pipe_lonely_input, O_CREAT|O_WRONLY|O_TRUNC)) < 0) {
+    char str_err[strlen(path_to_pipe_lonely_input) + strlen(path_to_pipe_lonely_input) + 20];
+    sprintf(str_err, "Couldn't open one of the pipes: %s & %s", path_to_pipe_main_input, path_to_pipe_lonely_input);
     perror(str_err);
     return -1;
   } else {
+    char* buffer = malloc(sizeof(BUFFER_SIZE));
+    while (read(fdr, buffer, BUFFER_SIZE) > 0)
+      write (fdw, buffer, BUFFER_SIZE);
     dup2(fdr, 0);
     close(fdr);
-  }*/
-  printf("Duplicate pipe: %s\n", path_to_pipe);
-  free(path_to_pipe);
+  }
+  free(path_to_pipe_main_input);
+  free(path_to_pipe_lonely_input);
   return 0;
 }
 
-int write_to_pipe (char* path_prefix, char* output, int index, int output_index) {
-  char* path_to_pipe = get_path(path_prefix, index, output_index);
-  /*mkfifo(path_to_pipe, 0666);
-  int fdw;
-  if ((fdw = open(path_to_pipe, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
-    char str_err[strlen(path_to_pipe) + 20];
-    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+int write_in_input_pipes (char* path_prefix, COMMAND c, char* buffer) {
+  for (int i=0; i<c->how_many_need_output; i++)
+    switch (fork()) {
+      case -1:
+        perror("Couldn't create fork!");
+        _exit(-1);
+      case 0: {
+        char* path_to_input_pipe = get_path_input(path_prefix, c->index, c->who_needs_output[i]);
+        mkfifo(path_to_input_pipe, 0666);
+        int fdw;
+        if ((fdw = open(path_to_input_pipe, O_RDONLY, 0666)) < 0) {
+          char str_err[strlen(path_to_input_pipe) + 20];
+          sprintf(str_err, "Couldn't open pipe: %s", path_to_input_pipe);
+          perror(str_err);
+          return -1;
+        } else {
+          write(fdw, buffer, BUFFER_SIZE);
+          close(fdw);
+        }
+      } default:
+        break;
+    }
+    return 0;
+}
+
+int read_output_pipe (char* path_prefix, COMMAND c) {
+  char* path_to_output_pipe = get_path_output(path_prefix, c->index);
+  mkfifo(path_to_output_pipe, 0666);
+  int fdr;
+  if ((fdr = open(path_to_output_pipe, O_RDONLY, 0666)) < 0) {
+    char str_err[strlen(path_to_output_pipe) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_output_pipe);
     perror(str_err);
     return -1;
   } else {
-    write(fdw, output, strlen(output));
+    char* buffer = malloc(sizeof(char)*BUFFER_SIZE);
+    while (read (fdr, buffer, BUFFER_SIZE) < 0)
+      write_in_input_pipes(path_prefix, c, buffer);
+    close(fdr);
+  }
+}
+
+int write_to_output_pipe (char* path_prefix, COMMAND c) {
+  char* path_to_pipe_output = get_path_output(path_prefix, c->index);
+  mkfifo(path_to_pipe_output, 0666);
+  int fdw;
+  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+    char str_err[strlen(path_to_pipe_output) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_output);
+    perror(str_err);
+    return -1;
+  } else {
+    dup2(fdw, 1);
     close(fdw);
-  }*/
-  printf("Write to Pipe: %s\n", path_to_pipe);
-  free(path_to_pipe);
+    execute_single_command(c->command);
+  }
+  free(path_to_pipe_output);
   return 0;
 }
 
@@ -329,19 +382,26 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* path_prefix) {
         perror("Couldn't create fork!");
         _exit(-1);
       case 0: {
-        printf("Index: %d\n", i);
+        char* input;
         if (c->input_from_whom != c->index)
           duplicate_pipe(path_prefix, c->index, c->input_from_whom);
-        
-        char* output;
-        // char* output = execute_command_return_output(c->command, c->index, path_prefix);
 
-        for(int j=0; j<c->how_many_need_output; j++) 
-          write_to_pipe(path_prefix, output, c->index, c->who_needs_output[j]);
+        for(int j=0; j<c->how_many_need_output; j++) {
+          switch (fork()) {
+            case -1:
+              perror("Couldn't create fork!");
+              _exit(-1);
+            case 0:
+              write_to_pipe(path_prefix, c->index, c->who_needs_output[j]);
+              _exit(-1);
+            default:
+              break;
+          }
+        }
 
         //puts(output);
         // free(output);
-        break;
+        _exit(-1);
       }
 
       default:
@@ -349,7 +409,6 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* path_prefix) {
         break;
     }
   }
-  puts("Acabou");
   return 0;
 }
 
@@ -569,7 +628,7 @@ int process_notebook(char* file_path) {
 int main (int argc, char* argv[]) {
   if (argc == 2) {
     //return process_notebook(argv[1]);
-    return read_notebook(argv[1]);
+    read_notebook(argv[1]);
     // char* output = execute_command_return_output("ls -l", 0, "/tmp/Pipe");
     // puts(":::::::::::::::::::::::");
     // printf("%s", output);
