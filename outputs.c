@@ -251,66 +251,38 @@ void execute_single_command (char* command) {
   }
 }
 
-char* execute_command_return_output (char* command, int index, char* path_prefix) {
-  char* path_to_pipe = get_path(path_prefix, index, -1);
-  char* output = malloc(sizeof(char) * BUFFER_SIZE);
-  switch (fork()) {
-    case -1:
-      perror("Couldn't create fork!");
-      _exit(-1);
-    case 0:
-      mkfifo(path_to_pipe, 0666);
-      int fdw;
-      if ((fdw = open(path_to_pipe, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
-        char str_err[strlen(path_to_pipe) + 20];
-        sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
-        perror(str_err);
-        _exit(-1);
-      } else {
-        dup2(fdw, 1);
-        close(fdw);
-        execute_single_command(command);
-        _exit(-1);
-      }
-    default:
-      mkfifo(path_to_pipe, 0666);
-      int fdr;
-      if ((fdr = open(path_to_pipe, O_RDONLY, 0666)) < 0) {
-        char str_err[strlen(path_to_pipe) + 20];
-        sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
-        perror(str_err);
-        _exit(-1);
-      } else {
-        read(fdr, output, BUFFER_SIZE);
-        close(fdr);
-        unlink(path_to_pipe);
-      }
-      break;
-  }
-  free(path_to_pipe);
-  return output;
-}
-
-int duplicate_pipe (char* path_prefix, int index, int input_index) {
-  char* path_to_pipe_main_input = get_path_output(path_prefix, input_index);
-  char* path_to_pipe_lonely_input = get_path_input(path_prefix, input_index, index);
-  mkfifo(path_to_pipe_lonely_input, 0666);
-  int fdr, fdw;
-  if ((fdr = open(path_to_pipe_main_input, O_RDONLY, 0666)) < 0 ||
-      (fdw = open(path_to_pipe_lonely_input, O_CREAT|O_WRONLY|O_TRUNC)) < 0) {
-    char str_err[strlen(path_to_pipe_lonely_input) + strlen(path_to_pipe_lonely_input) + 20];
-    sprintf(str_err, "Couldn't open one of the pipes: %s & %s", path_to_pipe_main_input, path_to_pipe_lonely_input);
+int duplicate_pipe (char* path_prefix, COMMAND c) {
+  char* path_to_pipe_input = get_path_input(path_prefix, c->input_from_whom, c->index);
+  mkfifo(path_to_pipe_input, 0666);
+  int fdr;
+  if ((fdr = open(path_to_pipe_input, O_RDONLY, 0666)) < 0) {
+    char str_err[strlen(path_to_pipe_input) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_input);
     perror(str_err);
     return -1;
   } else {
-    char* buffer = malloc(sizeof(BUFFER_SIZE));
-    while (read(fdr, buffer, BUFFER_SIZE) > 0)
-      write (fdw, buffer, BUFFER_SIZE);
     dup2(fdr, 0);
     close(fdr);
   }
-  free(path_to_pipe_main_input);
-  free(path_to_pipe_lonely_input);
+  free(path_to_pipe_input);
+  return 0;
+}
+
+int write_to_output_pipe (char* path_prefix, COMMAND c) {
+  char* path_to_pipe_output = get_path_output(path_prefix, c->index);
+  mkfifo(path_to_pipe_output, 0666);
+  int fdw;
+  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_TRUNC, 0666)) < 0) {
+    char str_err[strlen(path_to_pipe_output) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_output);
+    perror(str_err);
+    return -1;
+  } else {
+    dup2(fdw, 1);
+    close(fdw);
+    execute_single_command(c->command);
+  }
+  free(path_to_pipe_output);
   return 0;
 }
 
@@ -333,13 +305,15 @@ int write_in_input_pipes (char* path_prefix, COMMAND c, char* buffer) {
           write(fdw, buffer, BUFFER_SIZE);
           close(fdw);
         }
+        free(path_to_input_pipe);
+        _exit(0);
       } default:
         break;
     }
     return 0;
 }
 
-int read_output_pipe (char* path_prefix, COMMAND c) {
+int output_pipe_to_input_pipes (char* path_prefix, COMMAND c) {
   char* path_to_output_pipe = get_path_output(path_prefix, c->index);
   mkfifo(path_to_output_pipe, 0666);
   int fdr;
@@ -354,23 +328,7 @@ int read_output_pipe (char* path_prefix, COMMAND c) {
       write_in_input_pipes(path_prefix, c, buffer);
     close(fdr);
   }
-}
-
-int write_to_output_pipe (char* path_prefix, COMMAND c) {
-  char* path_to_pipe_output = get_path_output(path_prefix, c->index);
-  mkfifo(path_to_pipe_output, 0666);
-  int fdw;
-  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
-    char str_err[strlen(path_to_pipe_output) + 20];
-    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_output);
-    perror(str_err);
-    return -1;
-  } else {
-    dup2(fdw, 1);
-    close(fdw);
-    execute_single_command(c->command);
-  }
-  free(path_to_pipe_output);
+  free(path_to_output_pipe);
   return 0;
 }
 
@@ -382,30 +340,11 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* path_prefix) {
         perror("Couldn't create fork!");
         _exit(-1);
       case 0: {
-        char* input;
-        if (c->input_from_whom != c->index)
-          duplicate_pipe(path_prefix, c->index, c->input_from_whom);
-
-        for(int j=0; j<c->how_many_need_output; j++) {
-          switch (fork()) {
-            case -1:
-              perror("Couldn't create fork!");
-              _exit(-1);
-            case 0:
-              write_to_pipe(path_prefix, c->index, c->who_needs_output[j]);
-              _exit(-1);
-            default:
-              break;
-          }
-        }
-
-        //puts(output);
-        // free(output);
-        _exit(-1);
-      }
-
-      default:
-        wait(NULL);
+        if (c->index != c->input_from_whom) duplicate_pipe(path_prefix, c);
+        write_to_output_pipe(path_prefix, c);
+        output_pipe_to_input_pipes(path_prefix, c);
+        _exit(0);
+      } default:
         break;
     }
   }
