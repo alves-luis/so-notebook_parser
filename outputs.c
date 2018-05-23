@@ -8,11 +8,26 @@
 #include <time.h>
 #include <string.h>
 
-#define BUFFER_SIZE 10
+#define BUFFER_SIZE 4096
 #define ARGS 100
-#define ARG_SIZE 100
+
+typedef struct command {
+  char* command;
+  int index;
+  int input_from_whom;
+  int how_many_need_output;
+  int* who_needs_output;
+} * COMMAND;
 
 char* read_from_file (char* path_to_file) {
+  int fd;
+  if ((fd = open(path_to_file, O_RDONLY, 0666)) < 0) {
+    char str_err[strlen(path_to_file) + 20];
+    sprintf(str_err, "Couldn't open file: %s", path_to_file);
+    perror(str_err);
+    _exit(-1);
+  }
+
   int byte_count;
 
   int pipe_fd[2];
@@ -32,17 +47,10 @@ char* read_from_file (char* path_to_file) {
     sscanf(str, "%d", &byte_count);
     // printf("Bytes: %d\n", byte_count);
   }
-
-  int fd;
-  if ((fd = open(path_to_file, O_RDONLY, 0666)) < 0) {
-    char str_err[strlen(path_to_file) + 20];
-    sprintf(str_err, "Couldn't open file: %s", path_to_file);
-    perror(str_err);
-    _exit(-1);
-  }
   
   char* contents = malloc(sizeof(char)*(byte_count));
   read(fd, contents, byte_count);
+  close(fd);
   contents[byte_count] = 0;
 
   return contents;
@@ -67,9 +75,161 @@ void split_args (char* command, char** dest, int dest_size) {
   if (i == dest_size && arg != NULL) puts("Didn't receive all the args. Input error here.");
 }
 
+int next_line (char* text) {
+  for (int i=0; i<strlen(text); i++)
+    if (text[i] == '\n' || i+1 == strlen(text))
+      return i+1;
+  
+  return -1;
+}
+
+int should_ignore_or_not (char* str_pointer, int previous_ignore_value) {
+  int count, i;
+  for(i=0, count=0; i<3; i++) {
+    if (str_pointer[i] == '>') count++;
+    if (str_pointer[i] == '<') count--;
+  }
+
+  int should_ignore = previous_ignore_value;
+  if (count == 3 && !previous_ignore_value && str_pointer[i] == '\n') should_ignore = 1;
+  if (count == -3 && previous_ignore_value && str_pointer[i] == '\n') should_ignore = 0;
+
+  return should_ignore;
+}
+
+char* read_lines_notebook(char* nb_content, int index) {
+  int i, index_count = 0, should_ignore = 0, bytes = 0, its_command = 0;
+  for (i=0; index_count <= index; i++) {
+    if (nb_content[i] == '<' && i+4 < strlen(nb_content)) {
+      should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
+      i += 5;
+    }
+    if (should_ignore) continue;
+    if (nb_content[i] == '>' && i+4 < strlen(nb_content)) should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
+    if (index_count == index) bytes++;
+    if (nb_content[i] == '$') its_command = 1;
+    if (nb_content[i] == '\n' && its_command) {index_count++; its_command=0;}
+  }
+
+  char* lines = malloc(sizeof(char) * bytes);
+  strncpy(lines, nb_content + i - bytes, bytes);
+
+  return lines;
+}
+
+char* get_all_commands(char* nb_content) {
+  int i=0, size = 0, pos = 0;
+  char* lines, *commands;
+  
+  do {
+    if (i != 0) {
+      while (pos < strlen(lines)) {
+        int bytes = next_line(lines + pos);
+        if (lines[pos] == '$') {
+          if (size == 0) {
+            commands = (char*) malloc(sizeof(char) * (bytes+1));
+            strncpy(commands, lines+pos, bytes);
+            // puts(commands);
+          } else {
+            char* tmp_ptr = (char*) realloc(commands, sizeof(char) * (size+bytes+1));
+            if (tmp_ptr) commands = tmp_ptr;
+            else return NULL;
+            strncat(commands, lines+pos, bytes);
+            // puts(commands);
+          }
+          size += bytes;
+        }
+        pos += bytes;
+      }
+      free(lines);
+    }
+    lines = read_lines_notebook(nb_content, i);
+    pos = 0; i++;
+  } while (strlen(lines) != 0);
+
+  free(lines);
+  return commands;
+}
+
+int get_how_many_commands_above (char* command) {
+  int number = 0;
+  if (command[0] == '|') number = 1;
+  else if (command[0] >= '0' && command[0] <= '9') sscanf(command, "%d", &number);
+  return number;
+}
+
+char* get_command2 (char* command_str) {
+  int pos;
+  for(pos=0; pos < strlen(command_str); pos++)
+    if (command_str[pos] == ' ') {
+      pos++; 
+      break;
+    }
+
+  int bytes = next_line(command_str+pos);
+
+  char* command = malloc(bytes+1);
+  strncpy(command, command_str+pos, bytes);
+
+  return command;
+}
+
+int set_command(COMMAND c, char* commands, int n_comm, int index) {
+  int i, pos;
+  for(i=0, pos=0; i<n_comm; i++, pos+=next_line(commands+pos)) {
+    if (i == index) {
+      c->index = index;
+      c->command = get_command2(commands+pos);
+      c->input_from_whom = index - get_how_many_commands_above(commands+pos+1);
+      c->how_many_need_output = 0;
+    } else if (i > index) {
+      if (i - get_how_many_commands_above(commands+pos+1) == index) {
+        if (c->how_many_need_output == 0) {
+          c->who_needs_output = malloc(sizeof(int));
+        } else {
+          int* tmp_ptr = realloc(c->who_needs_output, sizeof(int)*(c->how_many_need_output+1));
+          if (tmp_ptr) c->who_needs_output = tmp_ptr;
+          else return -1;
+        }
+        c->who_needs_output[c->how_many_need_output] = i;
+        c->how_many_need_output++;
+      } 
+    }
+  }
+
+  return 0;
+}
+
+void print_struct_command (COMMAND c) {
+    printf("Index: %d; Input from who: %d; How many need output: %d; " 
+    , c->index, c->input_from_whom, c->how_many_need_output);
+    printf("Who needs output: ");
+    for (int i=0; i<c->how_many_need_output; i++) {
+      printf("%d", c->who_needs_output[i]);
+      if (i != c->how_many_need_output-1)
+        printf(" ");
+      else 
+        printf("; ");
+    }
+    printf("Command: %s", c->command);
+}
+
+int count_commands (char* commands) {
+ int count = 0;
+  for (int i=0; i<strlen(commands); i++)
+    if (commands[i] == '$') count++;
+  return count;
+}
+
+char* get_path(char* path, int index_from, int index_to) {
+  char* full_path = malloc(sizeof(char) * (strlen(path) + 22));
+  sprintf(full_path, "%s_%d_%d", path, index_from, index_to);
+  return full_path;
+}
+
 void execute_single_command (char* command) {
-  char* arr_args[ARG_SIZE] = {0};
-  split_args(command, arr_args, ARG_SIZE);  
+  char* arr_args[ARGS] = {0};
+  split_args(command, arr_args, ARGS);  
   switch (fork()) {
     case -1:
       puts("Couldn't create fork!");
@@ -79,10 +239,149 @@ void execute_single_command (char* command) {
       _exit(-1);
     default:
       wait(NULL);
-      for (int i=0; arr_args[i] != NULL && i<ARG_SIZE; i++) 
+      for (int i=0; arr_args[i] != NULL && i<ARGS; i++) 
         free(arr_args[i]);
       break;
   }
+}
+
+char* execute_command_return_output (char* command, int index, char* path_prefix) {
+  char* path_to_pipe = get_path(path_prefix, index, -1);
+  char* output = malloc(sizeof(char) * BUFFER_SIZE);
+  switch (fork()) {
+    case -1:
+      perror("Couldn't create fork!");
+      _exit(-1);
+    case 0:
+      mkfifo(path_to_pipe, 0666);
+      int fdw;
+      if ((fdw = open(path_to_pipe, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+        char str_err[strlen(path_to_pipe) + 20];
+        sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+        perror(str_err);
+        _exit(-1);
+      } else {
+        dup2(fdw, 1);
+        close(fdw);
+        execute_single_command(command);
+        _exit(-1);
+      }
+    default:
+      mkfifo(path_to_pipe, 0666);
+      int fdr;
+      if ((fdr = open(path_to_pipe, O_RDONLY, 0666)) < 0) {
+        char str_err[strlen(path_to_pipe) + 20];
+        sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+        perror(str_err);
+        _exit(-1);
+      } else {
+        read(fdr, output, BUFFER_SIZE);
+        close(fdr);
+        unlink(path_to_pipe);
+      }
+      break;
+  }
+  free(path_to_pipe);
+  return output;
+}
+
+int duplicate_pipe (char* path_prefix, int index, int input_index) {
+  char* path_to_pipe = get_path(path_prefix, input_index, index);
+  /*mkfifo(path_to_pipe, 0666);
+  int fdr;
+  if ((fdr = open(path_to_pipe, O_RDONLY, 0666)) < 0) {
+    char str_err[strlen(path_to_pipe) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+    perror(str_err);
+    return -1;
+  } else {
+    dup2(fdr, 0);
+    close(fdr);
+  }*/
+  printf("Duplicate pipe: %s\n", path_to_pipe);
+  free(path_to_pipe);
+  return 0;
+}
+
+int write_to_pipe (char* path_prefix, char* output, int index, int output_index) {
+  char* path_to_pipe = get_path(path_prefix, index, output_index);
+  /*mkfifo(path_to_pipe, 0666);
+  int fdw;
+  if ((fdw = open(path_to_pipe, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+    char str_err[strlen(path_to_pipe) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe);
+    perror(str_err);
+    return -1;
+  } else {
+    write(fdw, output, strlen(output));
+    close(fdw);
+  }*/
+  printf("Write to Pipe: %s\n", path_to_pipe);
+  free(path_to_pipe);
+  return 0;
+}
+
+int execute_all_commands(COMMAND commands[], int n_comm, char* path_prefix) {
+  for(int i=0; i<n_comm; i++) {
+    COMMAND c = commands[i];
+    switch (fork()) {
+      case -1:
+        perror("Couldn't create fork!");
+        _exit(-1);
+      case 0: {
+        printf("Index: %d\n", i);
+        if (c->input_from_whom != c->index)
+          duplicate_pipe(path_prefix, c->index, c->input_from_whom);
+        
+        char* output;
+        // char* output = execute_command_return_output(c->command, c->index, path_prefix);
+
+        for(int j=0; j<c->how_many_need_output; j++) 
+          write_to_pipe(path_prefix, output, c->index, c->who_needs_output[j]);
+
+        //puts(output);
+        // free(output);
+        break;
+      }
+
+      default:
+        wait(NULL);
+        break;
+    }
+  }
+  puts("Acabou");
+  return 0;
+}
+
+int read_notebook (char* path_to_file) {
+  // Gets the content of the file to a string
+  char* nb_content = read_from_file(path_to_file);
+  // Isolates all the commands in a single string
+  char* str_commands = get_all_commands(nb_content);
+  // Counts the number of commands
+  int n_comm = count_commands(str_commands);
+  // Initiates an array of COMMANDS
+  COMMAND commands[n_comm];
+
+  for(int i=0; i<n_comm; i++) {
+    commands[i] = malloc(sizeof(struct command));
+    set_command(commands[i], str_commands, n_comm, i);
+    print_struct_command(commands[i]);
+  }
+
+  char path_to_pipe[] = "/tmp/Pipe";
+  execute_all_commands(commands, n_comm, path_to_pipe);
+
+  for(int i=0; i<n_comm; i++) {
+    free(commands[i]->who_needs_output);
+    free(commands[i]->command);
+    free(commands[i]);
+  }
+
+  free(nb_content);
+  free(str_commands);
+
+  return 0;
 }
 
 void create_pipe(char* prefix, int no_pipe, char** pipe_storage, int no_comm) {
@@ -149,13 +448,6 @@ void append_to_file (char* file_path, char* str_to_append) {
   close(fd);
 }
 
-int next_line (char* text) {
-  for (int i=0; i<strlen(text); i++)
-    if (text[i] == '\n' || i+1 == strlen(text))
-      return i+1;
-  
-  return -1;
-}
 
 int read_lines_append (char* contents, char* output_path) {
   int bytes = 0;
@@ -185,13 +477,6 @@ int execute_commands (char** commands, char* content_file, char* output_path, in
   }
 
   return pos_content;
-}
-
-int count_commands (char* commands) {
- int count = 0;
-  for (int i=0; i<strlen(commands); i++)
-    if (commands[i] == '$') count++;
-  return count;
 }
 
 char* get_command (char* command_str, int* pipe) {
@@ -283,7 +568,15 @@ int process_notebook(char* file_path) {
 
 int main (int argc, char* argv[]) {
   if (argc == 2) {
-    return process_notebook(argv[1]);
+    //return process_notebook(argv[1]);
+    return read_notebook(argv[1]);
+    // char* output = execute_command_return_output("ls -l", 0, "/tmp/Pipe");
+    // puts(":::::::::::::::::::::::");
+    // printf("%s", output);
+    // puts(":::::::::::::::::::::::");
+    // free(output);
+    // char* command = get_command2("$1| head -1");
+    // printf("Command: %s", command);
   } else {
     puts("Please execute the program and provide a path to the notebook!");
   }
