@@ -69,53 +69,45 @@ int count_args (char* command) {
   return count;
 }
 
-void split_args (char* command, char** dest, int dest_size) {
-  int i=0;
-  const char c[2] = " ";
-
-  char arg_not_literal[strlen(command)+1];
-  for (int i=0; i<=strlen(command); i++)
-    arg_not_literal[i] = *(command + i);
-
-  char * arg = strtok (arg_not_literal, c);
-  while (i < dest_size && arg != NULL) {
-    dest[i] = malloc(strlen(arg)+1);
-    strcpy(dest[i], arg);
-    arg = strtok (NULL, " ");
-    i++;
+int get_args (char* command, int n_args, char* args[]) {
+  int bytes, i, index;
+  for(i=0, bytes=0, index=0; i < strlen(command) && index<n_args; i++) {
+    if (command[i] < 33 || command[i] > 126) {
+      if (bytes != 0) {
+        char* arg = malloc(sizeof(char)* bytes+1);
+        strncpy(arg, command + i - bytes, bytes);
+        arg[bytes] = 0;
+        args[index++] = arg;
+      }
+      bytes = 0;
+    } else
+      bytes++;  
   }
 
-  if (i == dest_size && arg != NULL) puts("Didn't receive all the args. Input error here.");
-}
+  if (index < n_args) {
+    char* arg = malloc(sizeof(char)* bytes);
+    strncpy(arg, command + i - bytes, bytes);
+    args[index++] = arg;
+  }
 
-char* get_arg (char* command, int* pos) {
-  int bytes = 0;
-  for (int i=0; i<strlen(command); i++, bytes++) 
-    if (command[i] == '\n' || command[i] == ' ') break; 
-  
-  (*pos) += bytes+1;
-  char* arg = malloc(sizeof(char) * bytes-1);
-  strncpy(arg, command, bytes-1);
-  // printf("Arg: %s\n", arg);
-
-  return arg;
+  return (index == n_args) ? 0 : -1;
 }
 
 void execute_single_command (char* command) {
   int n_args = count_args (command);
-  int pos = 0;
-  char* arr[n_args + 2];
-  for (int i=0; i<n_args+2; i++) 
-    if (i != n_args+1) 
-      arr[i] = get_arg(command + pos, &pos);
-    else arr[i] = NULL;
+  char* args[n_args+1];
+  get_args(command, n_args, args);
+  args[n_args] = NULL;
+
+  for(int i=0; i<n_args+1; i++)
+    printf("Argument %d: %s;\n", i, (args[i]) ? args[i] : "NULL");
 
   switch (fork()) {
     case -1:
       perror("Couldn't create fork!");
       break;  
     case 0: {
-      execvp(arr[0], arr);
+      execvp(args[0], args);
       char str_err[24 + strlen(command)];
       sprintf(str_err, "Could execute command (%s)", command);
       perror(str_err);
@@ -123,7 +115,7 @@ void execute_single_command (char* command) {
     } default:
       wait(NULL);
       for (int i=0; i <= n_args; i++) 
-        free(arr[i]);
+        free(args[i]);
       break;
   }
 }
@@ -306,18 +298,21 @@ int duplicate_pipe (char* path_prefix, COMMAND c) {
 
 int write_to_output_pipe (char* path_prefix, COMMAND c) {
   char* path_to_pipe_output = get_path_output(path_prefix, c->index);
+  printf("Path: %s\n", path_to_pipe_output);
   mkfifo(path_to_pipe_output, 0666);
   int fdw;
-  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+  if ((fdw = open(path_to_pipe_output, O_WRONLY)) < 0) {
     char str_err[strlen(path_to_pipe_output) + 20];
     sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_output);
     perror(str_err);
     return -1;
   } else {
-    printf("Command: %s", c->command);
+    // write(1, c->command, strlen(c->command));
+    // printf("Command: %s", c->command);
     dup2(fdw, 1);
     close(fdw);
     execute_single_command(c->command);
+    // puts("Content!");
   }
   free(path_to_pipe_output);
   return 0;
@@ -458,25 +453,23 @@ void append_to_file (char* file_path, char* str_to_append) {
   close(fd);
 }
 
-int main (int argc, char* argv[]) {
-  if (argc == 2) {
-    read_notebook(argv[1]);   
-    // Gets the content of the file to a string
-    // char* nb_content = read_from_file(argv[1]);
-    // Isolates all the commands in a single string
-    // char* str_commands = get_all_commands(nb_content);
-    // printf("String of commands:\n%s", str_commands);
-    // Counts the number of commands
-    // int n_comm = count_commands(str_commands);
-    // Initiates an array of COMMANDS
-    // COMMAND commands[n_comm];
+// x indidica o numero de elemntos
+int  parse(char* linha, char **args){
+  int x = 0;
+     while (*linha != '\0') {
+          while (*linha == ' ')
+               *linha++ = '\0';
+          *args++ = linha;
+          x++;
+          while (*linha != '\0' && *linha != ' ')
+               linha++;
+     }
+     return x;
+}
 
-    // for(int i=0; i<n_comm; i++) {
-      // commands[i] = malloc(sizeof(struct command));
-      // set_command(commands[i], str_commands, n_comm, i);
-      // printf("Command: %s", commands[i]->command);
-    // }
-    // execute_single_command("ls \n");
+int main (int argc, char* argv[]) {
+  if (argc >= 2) {
+    read_notebook(argv[1]);   
   } else {
     puts("Please execute the program and provide a path to the notebook!");
   }
