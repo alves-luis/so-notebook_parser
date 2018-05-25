@@ -56,8 +56,21 @@ char* read_from_file (char* path_to_file) {
   return contents;
 }
 
+int count_args (char* command) {
+  int i, count=0, its_command;
+
+  for (i=0; i<strlen(command); i++) {
+    if (command[i] != ' ' && command[i] != '\n' && !its_command) {
+      its_command = 1;
+      count++;
+    } else if (command[i] == ' ' || command[i] == '\n') its_command = 0;
+  }
+
+  return count;
+}
+
 void split_args (char* command, char** dest, int dest_size) {
-  int i = 0;
+  int i=0;
   const char c[2] = " ";
 
   char arg_not_literal[strlen(command)+1];
@@ -73,6 +86,46 @@ void split_args (char* command, char** dest, int dest_size) {
   }
 
   if (i == dest_size && arg != NULL) puts("Didn't receive all the args. Input error here.");
+}
+
+char* get_arg (char* command, int* pos) {
+  int bytes = 0;
+  for (int i=0; i<strlen(command); i++, bytes++) 
+    if (command[i] == '\n' || command[i] == ' ') break; 
+  
+  (*pos) += bytes+1;
+  char* arg = malloc(sizeof(char) * bytes-1);
+  strncpy(arg, command, bytes-1);
+  // printf("Arg: %s\n", arg);
+
+  return arg;
+}
+
+void execute_single_command (char* command) {
+  int n_args = count_args (command);
+  int pos = 0;
+  char* arr[n_args + 2];
+  for (int i=0; i<n_args+2; i++) 
+    if (i != n_args+1) 
+      arr[i] = get_arg(command + pos, &pos);
+    else arr[i] = NULL;
+
+  switch (fork()) {
+    case -1:
+      perror("Couldn't create fork!");
+      break;  
+    case 0: {
+      execvp(arr[0], arr);
+      char str_err[24 + strlen(command)];
+      sprintf(str_err, "Could execute command (%s)", command);
+      perror(str_err);
+      _exit(-1);
+    } default:
+      wait(NULL);
+      for (int i=0; i <= n_args; i++) 
+        free(arr[i]);
+      break;
+  }
 }
 
 int next_line (char* text) {
@@ -158,18 +211,19 @@ int get_how_many_commands_above (char* command) {
   return number;
 }
 
-char* get_command2 (char* command_str) {
+char* get_command (char* command_str) {
   int pos;
   for(pos=0; pos < strlen(command_str); pos++)
     if (command_str[pos] == ' ') {
       pos++; 
       break;
     }
+  int bytes;
+  for (bytes=0; bytes + pos < strlen(command_str) && command_str[bytes] != '\n';  bytes++);
+  for (; command_str[bytes] == ' ' || command_str[bytes] == '\n'; bytes--);
 
-  int bytes = next_line(command_str+pos);
-
-  char* command = malloc(bytes+1);
-  strncpy(command, command_str+pos, bytes);
+  char* command = malloc(bytes-pos+3);
+  strncpy(command, command_str+pos, bytes-pos+2);
 
   return command;
 }
@@ -179,7 +233,7 @@ int set_command(COMMAND c, char* commands, int n_comm, int index) {
   for(i=0, pos=0; i<n_comm; i++, pos+=next_line(commands+pos)) {
     if (i == index) {
       c->index = index;
-      c->command = get_command2(commands+pos);
+      c->command = get_command(commands+pos);
       c->input_from_whom = index - get_how_many_commands_above(commands+pos+1);
       c->how_many_need_output = 0;
     } else if (i > index) {
@@ -211,7 +265,7 @@ void print_struct_command (COMMAND c) {
       else 
         printf("; ");
     }
-    printf("Command: %s", c->command);
+    printf("Command: %s\n", c->command);
 }
 
 int count_commands (char* commands) {
@@ -231,24 +285,6 @@ char* get_path_output(char* path, int index) {
   char* full_path = malloc(sizeof(char) * (strlen(path) + 11));
   sprintf(full_path, "%s_%d", path, index);
   return full_path;
-}
-
-void execute_single_command (char* command) {
-  char* arr_args[ARGS] = {0};
-  split_args(command, arr_args, ARGS);  
-  switch (fork()) {
-    case -1:
-      puts("Couldn't create fork!");
-      break;  
-    case 0:
-      execvp(arr_args[0], arr_args);
-      _exit(-1);
-    default:
-      wait(NULL);
-      for (int i=0; arr_args[i] != NULL && i<ARGS; i++) 
-        free(arr_args[i]);
-      break;
-  }
 }
 
 int duplicate_pipe (char* path_prefix, COMMAND c) {
@@ -272,12 +308,13 @@ int write_to_output_pipe (char* path_prefix, COMMAND c) {
   char* path_to_pipe_output = get_path_output(path_prefix, c->index);
   mkfifo(path_to_pipe_output, 0666);
   int fdw;
-  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_TRUNC, 0666)) < 0) {
+  if ((fdw = open(path_to_pipe_output, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
     char str_err[strlen(path_to_pipe_output) + 20];
     sprintf(str_err, "Couldn't open pipe: %s", path_to_pipe_output);
     perror(str_err);
     return -1;
   } else {
+    printf("Command: %s", c->command);
     dup2(fdw, 1);
     close(fdw);
     execute_single_command(c->command);
@@ -316,7 +353,7 @@ int write_in_input_pipes (char* path_prefix, COMMAND c, char* buffer) {
 int write_in_file (char* path_prefix, COMMAND c, char* buffer) {
   int fdw;
   char* path_to_file = get_path_output(path_prefix, c->index);
-  if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
+  if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_TRUNC, 0666)) < 0) {
     char str_err[strlen(path_to_file) + 20];
     sprintf(str_err, "Couldn't open file: %s", path_to_file);
     perror(str_err);
@@ -330,6 +367,7 @@ int write_in_file (char* path_prefix, COMMAND c, char* buffer) {
 
 int output_pipe_to_input_pipes (char* path_prefix, COMMAND c) {
   char* path_to_output_pipe = get_path_output(path_prefix, c->index);
+  // printf("Path: %s\n", path_to_output_pipe);
   mkfifo(path_to_output_pipe, 0666);
   int fdr;
   if ((fdr = open(path_to_output_pipe, O_RDONLY, 0666)) < 0) {
@@ -339,13 +377,30 @@ int output_pipe_to_input_pipes (char* path_prefix, COMMAND c) {
     return -1;
   } else {
     char* buffer = malloc(sizeof(char)*BUFFER_SIZE);
-    while (read (fdr, buffer, BUFFER_SIZE) < 0) {
-      write_in_input_pipes(path_prefix, c, buffer);
+    while (read (fdr, buffer, BUFFER_SIZE) > 0) {
       write_in_file("/tmp/Final", c, buffer);
+      // write_in_input_pipes(path_prefix, c, buffer);
     }
-    close(fdr);
   }
   free(path_to_output_pipe);
+  return 0;
+}
+
+int execute_command_create_pipes (char* path_prefix, COMMAND c) {
+  switch (fork()) {
+    case -1:
+      perror("Couldn't create fork!");
+      _exit(-1);
+    case 0: {
+      if (c->index != c->input_from_whom) duplicate_pipe(path_prefix, c);        
+      write_to_output_pipe(path_prefix, c);
+      _exit(0);
+    }
+    default:
+      output_pipe_to_input_pipes(path_prefix, c);
+      // unlink(get_path_output(path_prefix, c->index));
+      break;
+    }
   return 0;
 }
 
@@ -357,9 +412,7 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* path_prefix) {
         perror("Couldn't create fork!");
         _exit(-1);
       case 0: {
-        if (c->index != c->input_from_whom) duplicate_pipe(path_prefix, c);
-        write_to_output_pipe(path_prefix, c);
-        output_pipe_to_input_pipes(path_prefix, c);
+        execute_command_create_pipes(path_prefix, c);
         _exit(0);
       } default:
         break;
@@ -381,7 +434,7 @@ int read_notebook (char* path_to_file) {
   for(int i=0; i<n_comm; i++) {
     commands[i] = malloc(sizeof(struct command));
     set_command(commands[i], str_commands, n_comm, i);
-    print_struct_command(commands[i]);
+    // print_struct_command(commands[i]);
   }
 
   char path_to_pipe[] = "/tmp/Pipe";
@@ -399,199 +452,31 @@ int read_notebook (char* path_to_file) {
   return 0;
 }
 
-void create_pipe(char* prefix, int no_pipe, char** pipe_storage, int no_comm) {
-  char path_to_pipe[strlen(prefix) + 22];
-  sprintf(path_to_pipe, "%s_%d_%d", prefix, no_comm, no_comm+1);
-  mkfifo(path_to_pipe, 0666);
-  pipe_storage[no_pipe] = malloc(sizeof(char) * strlen(path_to_pipe));
-  strcpy(pipe_storage[no_pipe], path_to_pipe);
-}
-
-int execute_maybe_piped_between_pos (char* commands[], int begin, int end, char* output_path) {
-  char pipe_prefix[] = "/tmp/SO_PIPE";
-  
-  char* pipes[end-begin];
-
-  for(int i=0; i <= end-begin; i++) {
-    if (i != end-begin) create_pipe(pipe_prefix, i, pipes, i+begin);
-    int fdw, fdr;
-    
-    switch (fork()) {
-      case -1:
-        perror("Couldn't create fork!");
-        _exit(-1);
-      case 0:
-        if (i!=0) {
-          while ((fdr = open(pipes[i-1], O_RDONLY, 0666)) < 0);
-          dup2(fdr, 0);
-          close(fdr);
-        }
-        if (i != end-begin) {
-          fdw = open(pipes[i], O_CREAT|O_WRONLY|O_TRUNC, 0666);
-          //printf("Pipe open for write: %s\n", pipes[i]);
-          dup2(fdw, 1);
-          close(fdw);
-          execute_single_command(commands[i+begin]);
-          _exit(-1);
-        } else {
-          fdw = open(output_path, O_CREAT|O_WRONLY|O_APPEND, 0666);
-          //printf("Outputs open for write: %s\n", pipes[i]);
-          dup2(fdw, 1);
-          close(fdw);
-          execute_single_command(commands[i+begin]);
-          _exit(-1);
-        }
-      default:
-        break;      
-    }
-  }
-
-  while(wait(NULL) > 0);
-
-  for (int i=0; i<end-begin; i++) {
-    unlink(pipes[i]);
-    free(pipes[i]);
-    //free(pipes);
-  }
-
-  return(0);
-}
-
 void append_to_file (char* file_path, char* str_to_append) {
   int fd = open(file_path, O_CREAT|O_WRONLY|O_APPEND, 0666);
   write(fd, str_to_append, strlen(str_to_append));
   close(fd);
 }
 
-
-int read_lines_append (char* contents, char* output_path) {
-  int bytes = 0;
-  for (int i=0; i<2; i++)
-    bytes += next_line(contents+ bytes);
-
-  char temp[bytes];
-  strncpy(temp, contents, bytes);
-  puts("::::::::::::::::::::::::");
-  printf("%s", temp);
-
-  append_to_file(output_path, temp);
-
-  if (contents[bytes] == '>') puts("It's already processed!");
-
-  return bytes;
-}
-
-int execute_commands (char** commands, char* content_file, char* output_path, int begin, int end) {
-  int pos_content = 0;
-
-  for (int i=begin; i <= end; i++) {
-    pos_content += read_lines_append(content_file + pos_content, output_path);
-    append_to_file(output_path, ">>>\n");
-    execute_maybe_piped_between_pos(commands, begin, i, output_path);
-    append_to_file(output_path, "<<<\n");
-  }
-
-  return pos_content;
-}
-
-char* get_command (char* command_str, int* pipe) {
-  int begin=0, end = 0, size = strlen(command_str);
-  
-  if (command_str[1] == '|') { begin = 4; *pipe = 0;}
-  else {begin = 3; *pipe = 1;}
-
-  for (end = begin; end < size; end++)
-    if (command_str[end] == '\n') {
-      end--;
-      break;
-    } else if (end == size-1) 
-      break;
-  
-  char* command = malloc(end-begin+2);
-  strncpy(command, command_str+begin-1, end-begin+2);
-  command[end-begin+2] = 0;
-
-  return command;
-}
-
-int parse_and_execute (char* commands, char* initial_path, char* final_path) {
-  int n_comm = count_commands(commands);
-  char* commands_parsed[n_comm];
-  int command_start[n_comm];
-
-  for (int i=0, begin=0; i<n_comm; i++) {
-    commands_parsed[i] = get_command(commands + begin, &command_start[i]);
-    // printf("Piped: %d\nBytes: %d\nCommand: %s\n", command_start[i], begin, commands_parsed[i]);
-    begin += next_line(commands + begin);
-  }
-
-  char* file_content = read_from_file(initial_path);
-  
-  int begin=0, end, pos_content=0;
-  while (begin < n_comm) {
-    if (command_start[begin]) {
-      for(end=begin+1; end<n_comm; end++)
-        if (command_start[end]) break;
-      // printf("Begin: %d; End: %d\n", begin, end-1);
-      pos_content += execute_commands(commands_parsed, file_content+pos_content, final_path, begin, end-1);
-      begin = end;
-    }
-  }
-
-
-  for (int i=0; i<n_comm; i++)
-    free(commands_parsed[i]);
-  return 0;
-}
-
-int process_notebook(char* file_path) {
-  char commands_path[] = "/tmp/SO_COMMANDS.nb";
-  
-  int fd_nb;
-  if ((fd_nb = open(file_path, O_RDONLY, 0666)) < 0) {
-    char str_err[strlen(file_path) + 20];
-    sprintf(str_err, "Couldn't open file: %s", file_path);
-    perror(str_err);
-    return(1);
-  }
-
-  char cm1[strlen(file_path) + 21];
-  sprintf(cm1, "grep '^\\$' %s > %s", file_path, commands_path);
-  system(cm1);
-  
-  char* commands = read_from_file(commands_path);
-  remove(commands_path);
-
-  // puts(commands);
-
-  char final_path[] = "/tmp/FINAL_NB.nb";
-
-  int ret = parse_and_execute(commands, file_path, final_path);
-  free(commands);
-
-  /*char* final_text = read_from_file(final_path);
-  int fd = open(file_path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
-  write(fd, final_text, strlen(final_text));
-  close(fd);
-  free(final_text);
-
-  remove(final_path);
-*/
-  return ret;
-  // return 1;
-}
-
 int main (int argc, char* argv[]) {
   if (argc == 2) {
-    //return process_notebook(argv[1]);
-    read_notebook(argv[1]);
-    // char* output = execute_command_return_output("ls -l", 0, "/tmp/Pipe");
-    // puts(":::::::::::::::::::::::");
-    // printf("%s", output);
-    // puts(":::::::::::::::::::::::");
-    // free(output);
-    // char* command = get_command2("$1| head -1");
-    // printf("Command: %s", command);
+    read_notebook(argv[1]);   
+    // Gets the content of the file to a string
+    // char* nb_content = read_from_file(argv[1]);
+    // Isolates all the commands in a single string
+    // char* str_commands = get_all_commands(nb_content);
+    // printf("String of commands:\n%s", str_commands);
+    // Counts the number of commands
+    // int n_comm = count_commands(str_commands);
+    // Initiates an array of COMMANDS
+    // COMMAND commands[n_comm];
+
+    // for(int i=0; i<n_comm; i++) {
+      // commands[i] = malloc(sizeof(struct command));
+      // set_command(commands[i], str_commands, n_comm, i);
+      // printf("Command: %s", commands[i]->command);
+    // }
+    // execute_single_command("ls \n");
   } else {
     puts("Please execute the program and provide a path to the notebook!");
   }
