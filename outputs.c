@@ -150,11 +150,13 @@ char* read_lines_notebook(char* nb_content, int index) {
     if (nb_content[i] == '>' && i+4 < strlen(nb_content)) should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
     if (index_count == index) bytes++;
     if (nb_content[i] == '$') its_command = 1;
-    if (nb_content[i] == '\n' && its_command) {index_count++; its_command=0;}
+    if (nb_content[i] == '\n' && its_command) { index_count++; its_command=0; }
   }
+
 
   char* lines = malloc(sizeof(char) * bytes);
   strncpy(lines, nb_content + i - bytes, bytes);
+  lines[bytes] = 0;
 
   return lines;
 }
@@ -296,7 +298,7 @@ int duplicate_pipe (char* pipe_prefix, COMMAND c) {
   return 0;
 }
 
-int write_to_output_pipe (char* pipe_prefix, COMMAND c) {
+int write_to_output_pipe_command (char* pipe_prefix, COMMAND c) {
   int fdw;
   char* path_to_pipe_output = get_path_output(pipe_prefix, c->index);
   mkfifo(path_to_pipe_output, 0666);
@@ -355,22 +357,48 @@ int write_in_input_pipes (char* pipe_prefix, COMMAND c, char* buffer) {
   return 0;
 }
 
-int write_in_file (char* file_prefix, int index, char* buffer) {
-  int fdw; char* path_to_file;
-  if (index >= 0) path_to_file = get_path_output(file_prefix, index);
-  else path_to_file = file_prefix;
+int write_to_pipe_to_file (char* file_prefix, int index, char* buffer) {
+  switch (fork()) {
+    case -1:
+      perror("Couldn't create fork!");
+      _exit(-1);
+    case 0: {      
+      int fdw; 
+      char*  path_to_file = get_path_output(file_prefix, index);
+      // mkfifo(path_to_file, 0666);
+      // fdw = open(path_to_file, O_WRONLY);
+      fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666);
 
-  if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_TRUNC, 0666)) < 0) {
+      if (fdw < 0) {
+        char str_err[strlen(path_to_file) + 20];
+        sprintf(str_err, "Couldn't open file: %s", path_to_file);
+        perror(str_err);
+        return -1;
+      } else {
+        write(fdw, buffer, strlen(buffer));
+        close(fdw);
+      }
+      free(path_to_file);
+      _exit(0);
+    } default:
+      break;
+  }
+  return 0;
+}
+
+int append_to_file (char* path_to_file, char* buffer) {
+  int fdw;
+  
+  if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
     char str_err[strlen(path_to_file) + 20];
     sprintf(str_err, "Couldn't open file: %s", path_to_file);
     perror(str_err);
     return -1;
   } else {
-    // printf("Buffer: %s\n;", buffer);
+    printf("Buffer: %s\n;", buffer);
     write(fdw, buffer, strlen(buffer));
     close(fdw);
   }
-  free(path_to_file);
   return 0;
 }
 
@@ -388,8 +416,8 @@ int output_pipe_to_pipes_files (char* pipe_prefix, char* file_prefix, COMMAND c)
     char buffer [BUFFER_SIZE];
     // puts("Waiting for read on Output Pipe!");
     while (read (fdr, buffer, BUFFER_SIZE) > 0) {
-      // printf("Buffer: %s;\n", buffer);
-      write_in_file(file_prefix, c->index, buffer);
+      printf("Buffer 0: %s\n", buffer);
+      write_to_pipe_to_file(file_prefix, c->index, buffer);
       write_in_input_pipes(pipe_prefix, c, buffer);
     }
   }
@@ -404,7 +432,7 @@ int execute_command_create_pipes (char* pipe_prefix, char* file_prefix, COMMAND 
       _exit(-1);
     case 0: {
       if (c->index != c->input_from_whom) duplicate_pipe(pipe_prefix, c);        
-      write_to_output_pipe(pipe_prefix, c);
+      write_to_output_pipe_command(pipe_prefix, c);
       _exit(0);
     }
     default:
@@ -437,18 +465,22 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* pipe_prefix, char
 }
 
 void append_to_file_output (char* path_of_file, char* prefix_to_output, int index) {
-  char* path_to_outpuf_of_index = get_path_output(prefix_to_output, index);
+  printf("Index: %d\n", index);
+  char* path_to_output_of_index = get_path_output(prefix_to_output, index);
+  mkfifo(path_to_output_of_index, 0666);
   int fdr;
-  if ((fdr = open(path_of_file, O_RDONLY, 0666)) < 0) {
+  if ((fdr = open(path_to_output_of_index, O_RDONLY)) < 0) {
     char str_err[strlen(path_of_file) + 20];
     sprintf(str_err, "Couldn't open pipe: %s", path_of_file);
     perror(str_err);
   } else {
     char buffer [BUFFER_SIZE];
+    printf("Buffer 1: %s\n", buffer);
     while (read (fdr, buffer, BUFFER_SIZE) > 0)
-      write_in_file(path_of_file, -1, buffer);
+      append_to_file(path_of_file, buffer);
   }
-  free(path_to_outpuf_of_index);
+  unlink(path_to_output_of_index);
+  free(path_to_output_of_index);
 }
 
 int read_notebook (char* path_to_file) {
@@ -477,19 +509,27 @@ int read_notebook (char* path_to_file) {
     free(commands[i]);
   }
 
-  free(nb_content);
   free(str_commands);
 
   char path_to_temporary_final_file[] = "/tmp/Final";
 
+  puts("--------------- CONTENT: --------------- ");
+  printf("%s\n", nb_content);
+  puts("--------------- END OF C --------------- ");
+
   for (int i=0; i<n_comm; i++) {
-    char* lines = read_lines_notebook(path_to_file, i);
-    write_in_file(path_to_temporary_final_file, -1, lines);
+    char* lines = read_lines_notebook(nb_content, i);
+    puts("--------- Lines: -----------");
+    printf("%s", lines);
+    puts("--------- End of -----------");
+    append_to_file(path_to_temporary_final_file, lines);
     free(lines);
-    write_in_file(path_to_temporary_final_file, -1,">>>\n");
+    append_to_file(path_to_temporary_final_file, ">>>\n");
     // append_to_file_output(path_to_temporary_final_file, prefix_to_file, i);
-    write_in_file(path_to_temporary_final_file, -1, "<<<\n");
+    append_to_file(path_to_temporary_final_file, "<<<\n");
   }
+  
+  free(nb_content);
 
   return 0;
 }
