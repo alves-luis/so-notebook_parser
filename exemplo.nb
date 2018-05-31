@@ -1,6 +1,35 @@
 Este comando lista os ficheiros:
 $ ls
+>>>
+Makefile
+README.md
+exemplo.nb
+exemplo2.nb
+exemplo2_not_processed.nb
+exemplo3.nb
+exemplo4.nb
+exemplo_np.nb
+outputs.c
+outputs.o
+program
+<<<
 Agora podemos ordenar estes ficheiros:
 $| sort
+>>>
+Makefile
+README.md
+exemplo.nb
+exemplo2.nb
+exemplo2_not_processed.nb
+exemplo3.nb
+exemplo4.nb
+exemplo_np.nb
+outputs.c
+outputs.o
+program
+<<<
 E escolher o primeiro:
 $| head -1
+>>>
+Makefile
+<<<

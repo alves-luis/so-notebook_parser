@@ -1,8 +1,38 @@
 Este comando lista os ficheiros:
 $ ls
+>>>
+Makefile
+README.md
+exemplo.nb
+exemplo2.nb
+exemplo2_not_processed.nb
+exemplo3.nb
+exemplo4.nb
+outputs.c
+outputs.o
+program
+<<<
 Agora podemos ordenar estes ficheiros:
 $1| sort
+>>>
+Makefile
+README.md
+exemplo.nb
+exemplo2.nb
+exemplo2_not_processed.nb
+exemplo3.nb
+exemplo4.nb
+outputs.c
+outputs.o
+program
+<<<
 Vamos escolher o primeiro:
 $2| head -1
+>>>
+Makefile
+<<<
 Conta quantos bytes tem:
 $| wc -c
+>>>
+9
+<<<

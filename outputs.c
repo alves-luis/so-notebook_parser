@@ -144,15 +144,20 @@ char* read_lines_notebook(char* nb_content, int index) {
   for (i=0; index_count <= index; i++) {
     if (nb_content[i] == '<' && i+4 < strlen(nb_content)) {
       should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
-      i += 5;
+      i += 4;
     }
+    if (i >= strlen(nb_content)) break;
     if (should_ignore) continue;
-    if (nb_content[i] == '>' && i+4 < strlen(nb_content)) should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
+    if (nb_content[i] == '>' && i+4 < strlen(nb_content)) {
+      should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
+      continue;
+    }
     if (index_count == index) bytes++;
     if (nb_content[i] == '$') its_command = 1;
     if (nb_content[i] == '\n' && its_command) { index_count++; its_command=0; }
   }
 
+  if (bytes == 0) return NULL;
 
   char* lines = malloc(sizeof(char) * bytes);
   strncpy(lines, nb_content + i - bytes, bytes);
@@ -189,7 +194,7 @@ char* get_all_commands(char* nb_content) {
     }
     lines = read_lines_notebook(nb_content, i);
     pos = 0; i++;
-  } while (strlen(lines) != 0);
+  } while (lines);
 
   free(lines);
   return commands;
@@ -365,9 +370,9 @@ int write_to_pipe_to_file (char* file_prefix, int index, char* buffer) {
     case 0: {      
       int fdw; 
       char*  path_to_file = get_path_output(file_prefix, index);
-      // mkfifo(path_to_file, 0666);
-      // fdw = open(path_to_file, O_WRONLY);
-      fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666);
+      mkfifo(path_to_file, 0666);
+      fdw = open(path_to_file, O_WRONLY);
+      // fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666);
 
       if (fdw < 0) {
         char str_err[strlen(path_to_file) + 20];
@@ -395,7 +400,7 @@ int append_to_file (char* path_to_file, char* buffer) {
     perror(str_err);
     return -1;
   } else {
-    printf("Buffer: %s\n;", buffer);
+    // printf("Buffer: %s\n;", buffer);
     write(fdw, buffer, strlen(buffer));
     close(fdw);
   }
@@ -404,7 +409,6 @@ int append_to_file (char* path_to_file, char* buffer) {
 
 int output_pipe_to_pipes_files (char* pipe_prefix, char* file_prefix, COMMAND c) {
   char* path_to_output_pipe = get_path_output(pipe_prefix, c->index);
-  // printf("Path: %s\n", path_to_output_pipe);
   mkfifo(path_to_output_pipe, 0666);
   int fdr;
   if ((fdr = open(path_to_output_pipe, O_RDONLY)) < 0) {
@@ -416,9 +420,9 @@ int output_pipe_to_pipes_files (char* pipe_prefix, char* file_prefix, COMMAND c)
     char buffer [BUFFER_SIZE];
     // puts("Waiting for read on Output Pipe!");
     while (read (fdr, buffer, BUFFER_SIZE) > 0) {
-      printf("Buffer 0: %s\n", buffer);
       write_to_pipe_to_file(file_prefix, c->index, buffer);
       write_in_input_pipes(pipe_prefix, c, buffer);
+      for (int i=0; i<BUFFER_SIZE; i++) buffer[i] = 0;
     }
   }
   free(path_to_output_pipe);
@@ -465,7 +469,6 @@ int execute_all_commands(COMMAND commands[], int n_comm, char* pipe_prefix, char
 }
 
 void append_to_file_output (char* path_of_file, char* prefix_to_output, int index) {
-  printf("Index: %d\n", index);
   char* path_to_output_of_index = get_path_output(prefix_to_output, index);
   mkfifo(path_to_output_of_index, 0666);
   int fdr;
@@ -475,12 +478,30 @@ void append_to_file_output (char* path_of_file, char* prefix_to_output, int inde
     perror(str_err);
   } else {
     char buffer [BUFFER_SIZE];
-    printf("Buffer 1: %s\n", buffer);
-    while (read (fdr, buffer, BUFFER_SIZE) > 0)
+    while (read (fdr, buffer, BUFFER_SIZE) > 0) {
       append_to_file(path_of_file, buffer);
+      for (int i=0; i<BUFFER_SIZE; i++) buffer[i] = 0;
+    }
   }
   unlink(path_to_output_of_index);
   free(path_to_output_of_index);
+}
+
+void replace_file (char* path_to_file, char* path_to_temp_file) {
+  char* final_content = read_from_file(path_to_temp_file);
+
+  int fdw;
+  if ((fdw = open(path_to_file, O_WRONLY|O_TRUNC)) < 0) {
+    char str_err[strlen(path_to_file) + 20];
+    sprintf(str_err, "Couldn't open pipe: %s", path_to_file);
+    perror(str_err);
+  } else {
+    write(fdw, final_content, strlen(final_content));
+    close(fdw);
+  }
+
+  free(final_content);
+  remove(path_to_temp_file);
 }
 
 int read_notebook (char* path_to_file) {
@@ -513,30 +534,25 @@ int read_notebook (char* path_to_file) {
 
   char path_to_temporary_final_file[] = "/tmp/Final";
 
-  puts("--------------- CONTENT: --------------- ");
-  printf("%s\n", nb_content);
-  puts("--------------- END OF C --------------- ");
-
   for (int i=0; i<n_comm; i++) {
     char* lines = read_lines_notebook(nb_content, i);
-    puts("--------- Lines: -----------");
-    printf("%s", lines);
-    puts("--------- End of -----------");
     append_to_file(path_to_temporary_final_file, lines);
     free(lines);
     append_to_file(path_to_temporary_final_file, ">>>\n");
-    // append_to_file_output(path_to_temporary_final_file, prefix_to_file, i);
+    append_to_file_output(path_to_temporary_final_file, prefix_to_file, i);
     append_to_file(path_to_temporary_final_file, "<<<\n");
   }
   
   free(nb_content);
+
+  replace_file(path_to_file, path_to_temporary_final_file);
 
   return 0;
 }
 
 int main (int argc, char* argv[]) {
   if (argc >= 2) {
-    read_notebook(argv[1]);      
+    read_notebook(argv[1]);   
   } else {
     puts("Please execute the program and provide a path to the notebook!");
   }
