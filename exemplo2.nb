@@ -8,9 +8,11 @@ exemplo2.nb
 exemplo2_not_processed.nb
 exemplo3.nb
 exemplo4.nb
+exemplo_np.nb
 outputs.c
 outputs.o
 program
+tmp
 <<<
 Agora podemos ordenar estes ficheiros:
 $1| sort
@@ -22,9 +24,11 @@ exemplo2.nb
 exemplo2_not_processed.nb
 exemplo3.nb
 exemplo4.nb
+exemplo_np.nb
 outputs.c
 outputs.o
 program
+tmp
 <<<
 Vamos escolher o primeiro:
 $2| head -1

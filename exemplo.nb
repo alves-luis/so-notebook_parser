@@ -12,6 +12,7 @@ exemplo_np.nb
 outputs.c
 outputs.o
 program
+tmp
 <<<
 Agora podemos ordenar estes ficheiros:
 $| sort
@@ -27,6 +28,7 @@ exemplo_np.nb
 outputs.c
 outputs.o
 program
+tmp
 <<<
 E escolher o primeiro:
 $| head -1
