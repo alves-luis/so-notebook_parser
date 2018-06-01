@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
@@ -10,47 +11,14 @@
 
 #define BUFFER_SIZE 4096
 
-typedef struct array_pids {
-  pid_t* array;
-  int size;
-  int occupied;
-} *ARRAY_PIDS;
+char prefix_to_pipes[];
+char prefix_to_pipes_to_file[];
+char prefix_to_file[];
 
-ARRAY_PIDS H1;
-ARRAY_PIDS H2;
-ARRAY_PIDS H3;
-
-void handler_H1(int sig) {
-  printf("\nTerminating!\n");
-  exit(1);
-}
-
-void handler_H2(int sig) {
-  printf("\nTerminating!\n");
-  exit(1);
-}
-
-void handler_H3(int sig) {
-  printf("\nTerminating!\n");
-  exit(1);
-}
-
-void array_pids_init (int n_comm) {
-  H1 = malloc(sizeof(struct array_pids));
-  H2 = malloc(sizeof(struct array_pids));
-  H3 = malloc(sizeof(struct array_pids));
-
-  H1->array = malloc(sizeof(int) * (n_comm + 2));
-  H2->array = malloc(sizeof(int) * (n_comm));
-  H3->array = malloc(sizeof(int) * (n_comm) * 3);
-
-  H1->size = n_comm + 2;
-  H2->size = n_comm;
-  H3->size = n_comm * 3;
-
-  H1->occupied = 0;
-  H2->occupied = 0;
-  H3->occupied = 0;
+void unique_handler(int sig) {
+  kill(0,sig);
+  puts("Terminating!");
+  _exit(-1);
 }
 
 typedef struct command {
@@ -563,8 +531,6 @@ int read_notebook (char* path_to_file) {
     // print_struct_command(commands[i]);
   }
 
-  array_pids_init(n_comm);
-
   char prefix_to_pipe[] = "/tmp/Pipe";
   char prefix_to_file[] = "/tmp/Output";
   execute_all_commands(commands, n_comm, prefix_to_pipe, prefix_to_file);
@@ -574,6 +540,8 @@ int read_notebook (char* path_to_file) {
     free(commands[i]->command);
     free(commands[i]);
   }
+
+  pause();
 
   free(str_commands);
 
@@ -596,8 +564,9 @@ int read_notebook (char* path_to_file) {
 }
 
 int main (int argc, char* argv[]) {
+  signal(SIGINT, unique_handler);
   if (argc >= 2) {
-    // read_notebook(argv[1]);   
+    read_notebook(argv[1]);   
   } else {
     puts("Please execute the program and provide a path to the notebook!");
   }
