@@ -8,16 +8,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define BUFFER_SIZE 4096
 
-char prefix_to_pipes[];
-char prefix_to_pipes_to_file[];
-char prefix_to_file[];
+char* PATH_TO_FOLDER;
 
-void unique_handler(int sig) {
-  kill(0,sig);
-  puts("Terminating!");
+void handler_parent(int sig) {
+  // kill(0,sig);
+  puts("Terminating Father!");
+  if (PATH_TO_FOLDER != NULL) {
+      execlp("rm", "rm", "-r", PATH_TO_FOLDER, NULL);
+      _exit(-1);
+  }
+  _exit(-1);
+}
+
+void handler_children(int sig) {
+  puts("Terminating Child!");
   _exit(-1);
 }
 
@@ -516,12 +525,22 @@ void replace_file (char* path_to_file, char* path_to_temp_file) {
 }
 
 int read_notebook (char* path_to_file) {
+  // Sets the paths (or the paths' prefixes) used in the program
+  char prefix_to_pipe[strlen(PATH_TO_FOLDER) + 5];
+  char prefix_to_pipe_of_output[strlen(PATH_TO_FOLDER) + 7];
+  char path_to_temporary_final_file[strlen(PATH_TO_FOLDER) + 6];
+  
+  sprintf(prefix_to_pipe, "%s/Pipe", PATH_TO_FOLDER);
+  sprintf(prefix_to_pipe_of_output, "%s/Output", PATH_TO_FOLDER);
+  sprintf(path_to_temporary_final_file, "%s/Final", PATH_TO_FOLDER);
+
   // Gets the content of the file to a string
   char* nb_content = read_from_file(path_to_file);
   // Isolates all the commands in a single string
   char* str_commands = get_all_commands(nb_content);
   // Counts the number of commands
   int n_comm = count_commands(str_commands);
+
   // Initiates an array of COMMANDS
   COMMAND commands[n_comm];
 
@@ -531,9 +550,7 @@ int read_notebook (char* path_to_file) {
     // print_struct_command(commands[i]);
   }
 
-  char prefix_to_pipe[] = "/tmp/Pipe";
-  char prefix_to_file[] = "/tmp/Output";
-  execute_all_commands(commands, n_comm, prefix_to_pipe, prefix_to_file);
+  execute_all_commands(commands, n_comm, prefix_to_pipe, prefix_to_pipe_of_output);
 
   for(int i=0; i<n_comm; i++) {
     free(commands[i]->who_needs_output);
@@ -545,14 +562,12 @@ int read_notebook (char* path_to_file) {
 
   free(str_commands);
 
-  char path_to_temporary_final_file[] = "/tmp/Final";
-
   for (int i=0; i<n_comm; i++) {
     char* lines = read_lines_notebook(nb_content, i);
     append_to_file(path_to_temporary_final_file, lines);
     free(lines);
     append_to_file(path_to_temporary_final_file, ">>>\n");
-    append_to_file_output(path_to_temporary_final_file, prefix_to_file, i);
+    append_to_file_output(path_to_temporary_final_file, prefix_to_pipe_of_output, i);
     append_to_file(path_to_temporary_final_file, "<<<\n");
   }
   
@@ -563,13 +578,49 @@ int read_notebook (char* path_to_file) {
   return 0;
 }
 
-int main (int argc, char* argv[]) {
-  signal(SIGINT, unique_handler);
-  if (argc >= 2) {
-    read_notebook(argv[1]);   
-  } else {
-    puts("Please execute the program and provide a path to the notebook!");
+char* get_folder_path (char* folder_prefix) {
+  struct stat st = {0};      
+  char* path = NULL;
+  do {
+    if (path != NULL) free(path);
+    path = get_path_output(folder_prefix, rand());
+  } while (stat(path, &st) != -1);
+  return path;
+}
+
+int init_program (char* path_name) {
+  PATH_TO_FOLDER = NULL;
+  signal(SIGINT, handler_parent);
+  srand(time(NULL));
+
+  char* path = get_folder_path("/tmp/SO");
+  mkdir(path, 0777);
+  PATH_TO_FOLDER = path;
+  printf("Path: %s;\n", PATH_TO_FOLDER);
+
+  switch (fork()) {
+     case -1:
+      perror("Couldn't create fork!");
+      return(-1);
+    case 0: {
+      signal(SIGINT, handler_children);
+      read_notebook(path_name);   
+      rmdir(path);   
+      _exit(0);
+    } default:
+      wait(NULL);
+      PATH_TO_FOLDER = NULL;
+      free(path);
+      break;
   }
+  return 0;
+}
+
+int main (int argc, char* argv[]) {
+  if (argc >= 2)
+    return init_program(argv[1]);
+  else
+    puts("Please execute the program and provide a path to the notebook!");
 
   return 1;
 }
