@@ -1,0 +1,10 @@
+Este comando acha se o maior:
+$ echo "Sou o maior"
+>>>
+"Sou o maior"
+<<<
+Este comando vai contraria lo:
+$ echo "Nao, nao es"
+>>>
+"Nao, nao es"
+<<<

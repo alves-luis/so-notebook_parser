@@ -1,0 +1,4 @@
+Este comando lista os ficheiros:
+$ ls
+E este escolhe o primeiro:
+$| head -1
