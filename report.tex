@@ -71,16 +71,9 @@ José Costa (A82136)\\\\
 		\tab Após vários testes, concluímos que o nosso programa tem algumas limitações,
 		que não conseguimos remover a tempo da entrega:
 			\begin{itemize}
-				\item Outputs de tamanho superior a 65k (tamanho de um pipe com nome)
+				\item Outputs de tamanho superior ao tamanho predefinido de um pipe com nome
 				\item Comandos que contenham pipes (comando1 $|$ comando2)
-				\item Por vezes não é possível eliminar as pastas criadas no /tmp
-				\item Outros erros esporádicos
 			\end{itemize}
-		\par Com os outros erros esporádicos, queremos indicar que por vezes, há notebooks
-		que correram bem ao testar num PC a correr o subsystem de linux no Windows, mas
-		não correram bem (algumas vezes) num PC a correr Ubuntu nativo. Dada a natureza
-		esporádica desses erros e a proximidade da data de entrega aquando da sua descoberta,
-		fica aqui documentada a sua existência.
 
 	\section{Conclusão}
 	\tab Com a realização deste trabalho, foi-nos possível aplicar as técnicas
@@ -90,6 +83,49 @@ José Costa (A82136)\\\\
 	\par No entanto, a aparente simplicidade do projeto depressa se mostrou isso mesmo,
 	apenas uma aparência, já que de forma a poder correr tudo conforme os requisitos
 	e sem limitações, exigiria uma maior carga de trabalho que não pudemos disponibilizar.
+
+	\section{Notebooks de teste}
+		\tab Em todos estes notebooks, o resultado obtido é igual ao resultado esperado
+		ao corrermos estes comandos no terminal. Por isso, omitem-se os resultados, que
+		facilmente se obtêm correndo o programa com um notebook com esses conteúdos.
+		\subsection{Notebook 1}
+		\begin{verbatim}
+			Este comando lista os ficheiros:
+			$ ls
+			Agora podemos ordenar estes ficheiros:
+			$| sort
+			E escolher o primeiro:
+			$| head -1
+		\end{verbatim}
+
+		\subsection{Notebook 2}
+		\begin{verbatim}
+			Este comando lista os ficheiros:
+			$ ls
+			Agora podemos ordenar estes ficheiros:
+			$1| sort
+			Vamos escolher o primeiro:
+			$2| head -1
+			Conta quantos bytes tem:
+			$| wc -c
+		\end{verbatim}
+
+		\subsection{Notebook 3}
+		\begin{verbatim}
+			Este comando acha-se o maior:
+			$ echo "Sou o maior"
+			Este comando vai contrariá-lo:
+			$ echo "Nao, nao es"
+		\end{verbatim}
+
+		\subsection{Notebook 4}
+		\begin{verbatim}
+			Este comando lista os ficheiros:
+			$ ls
+			E este escolhe o primeiro:
+			$| head -1
+		\end{verbatim}
+
 
 
 
