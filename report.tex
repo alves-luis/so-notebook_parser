@@ -34,7 +34,7 @@ José Costa (A82136)\\\\
 		\begin{itemize}
 			\item Comando com os respetivos argumentos
 			\item Index (n) do comando no notebook
-			\item Index do comando cujo output é preciso para executar este comando
+			\item Index do comando cujo output é preciso como input para executar este comando
 			\item Nº de comandos que necessitam do output deste comando
 			\item Array com os indexes dos comandos que necessitam do output deste comando
 		\end{itemize}
@@ -47,7 +47,7 @@ José Costa (A82136)\\\\
 		correr concorrentemente.
 		\par Criamos então um filho, que, caso não requeira o output de nenhum comando,
 		executa regularmente tendo o output redirecionado para um pipe de output. Caso
-		requeira o output de outro comando, duplica um pipe para o input do comando a executar,
+		requeira o output de outro comando, duplica um pipe para o input do comando a executar.
 		\par Após a execução, o pai lê o output do filho e coloca esse output noutro conjunto
 		de pipes, um para cada comando que vá precisar deste output como input, e um outro
 		que servirá para colocar este output no notebook final.
@@ -55,10 +55,11 @@ José Costa (A82136)\\\\
 	\subsection{Pipes e Pastas}
 		\tab Para guardarmos os resultados intermédios (ver acima), necessitamos de guardar
 		tanto os pipes de input, como os de output. Para isso, criamos uma pasta na diretoria
-		\texttt{/tmp/SO}, sendo que os Pipes de Input têm o seguinte formato: /tmp/SO\_f\_t, sendo
-		f o index do comando que fornece o output para o comando de index t.
-		\par Já os Pipes de output simples, têm o formato /tmp/SO\_t, sendo t o index do output
-		do n comando.
+		\texttt{/tmp/SO\_r}, sendo r um nº gerado pseudo-aleatoriamente.
+		\par Os Pipes de Input têm o seguinte formato: Pipe\_f\_t, sendo
+		f o index do comando que fornece o output para o comando de index t (que necessita do conteúdo do pipe como input).
+		\par Já os Pipes de output simples, têm o formato Pipe\_t, sendo t o index do output
+		do comando n.
 		\par De forma a não alterarmos o ficheiro em caso de término precoce (usando CTRL+C),
 		criamos apenas um ficheiro temporário final no fim do processamento de todos os comandos,
 		sendo que apenas terminado esse processo, esse ficheiro é copiado para o ficheiro
