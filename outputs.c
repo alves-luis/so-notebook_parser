@@ -64,7 +64,6 @@ char* read_from_file (char* path_to_file) {
     sscanf(str, "%d", &byte_count);
     // printf("Bytes: %d\n", byte_count);
   }
-
   char* contents = malloc(sizeof(char)*(byte_count));
   read(fd, contents, byte_count);
   close(fd);
@@ -87,9 +86,11 @@ int count_args (char* command) {
 }
 
 int get_args (char* command, int n_args, char* args[]) {
-  int bytes, i, index;
+  int bytes, i, index; // bytes -> size of arg
+  // index -> number of args
   for(i=0, bytes=0, index=0; i < strlen(command) && index<n_args; i++) {
-    if (command[i] < 33 || command[i] > 126) {
+    // asci 33 -> space | asci 126 -> ~. all the others are garbage commands
+    if (command[i] < 33 || command[i] > 126) { //asci code
       if (bytes != 0) {
         char* arg = malloc(sizeof(char)* bytes+1);
         strncpy(arg, command + i - bytes, bytes);
