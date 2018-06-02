@@ -11,8 +11,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define BUFFER_SIZE 4096
-
 char* PATH_TO_FOLDER;
 
 void handler_parent(int sig) {
@@ -442,12 +440,13 @@ int output_pipe_to_pipes_files (char* pipe_prefix, char* file_prefix, COMMAND c)
     perror(str_err);
     return -1;
   } else {
-    char buffer [BUFFER_SIZE];
+    long pipe_size = (long) fcntl (fdr, F_GETPIPE_SZ);
+    char buffer [pipe_size];
     // puts("Waiting for read on Output Pipe!");
-    while (read (fdr, buffer, BUFFER_SIZE) > 0) {
+    while (read (fdr, buffer, pipe_size) > 0) {
       write_in_input_pipes(pipe_prefix, c, buffer);
       write_to_pipe_to_file(file_prefix, c->index, buffer);
-      for (int i=0; i<BUFFER_SIZE; i++) buffer[i] = 0;
+      for (int i=0; i<pipe_size; i++) buffer[i] = 0;
       while(wait(NULL) >= 0);
     }
   }
@@ -503,10 +502,11 @@ void append_to_file_output (char* path_of_file, char* prefix_to_output, int inde
     sprintf(str_err, "Couldn't open pipe: %s", path_of_file);
     perror(str_err);
   } else {
-    char buffer [BUFFER_SIZE];
-    while (read (fdr, buffer, BUFFER_SIZE) > 0) {
+    long pipe_size = (long) fcntl (fdr, F_GETPIPE_SZ);
+    char buffer [pipe_size];
+    while (read (fdr, buffer, pipe_size) > 0) {
       append_to_file(path_of_file, buffer);
-      for (int i=0; i<BUFFER_SIZE; i++) buffer[i] = 0;
+      for (int i=0; i<pipe_size; i++) buffer[i] = 0;
     }
   }
   unlink(path_to_output_of_index);
