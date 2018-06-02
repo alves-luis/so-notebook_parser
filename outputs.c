@@ -66,7 +66,7 @@ char* read_from_file (char* path_to_file) {
     sscanf(str, "%d", &byte_count);
     // printf("Bytes: %d\n", byte_count);
   }
-  
+
   char* contents = malloc(sizeof(char)*(byte_count));
   read(fd, contents, byte_count);
   close(fd);
@@ -100,7 +100,7 @@ int get_args (char* command, int n_args, char* args[]) {
       }
       bytes = 0;
     } else
-      bytes++;  
+      bytes++;
   }
 
   if (index < n_args) {
@@ -121,7 +121,7 @@ void execute_single_command (char* command) {
   switch (fork()) {
     case -1:
       perror("Couldn't create fork!");
-      break;  
+      break;
     case 0: {
       execvp(args[0], args);
       char str_err[24 + strlen(command)];
@@ -130,17 +130,18 @@ void execute_single_command (char* command) {
       _exit(-1);
     } default:
       wait(NULL);
-      for (int i=0; i <= n_args; i++) 
+      for (int i=0; i <= n_args; i++)
         free(args[i]);
       break;
   }
 }
 
+// Returns the byte count until the next line
 int next_line (char* text) {
   for (int i=0; i<strlen(text); i++)
     if (text[i] == '\n' || i+1 == strlen(text))
       return i+1;
-  
+
   return -1;
 }
 
@@ -163,13 +164,13 @@ char* read_lines_notebook(char* nb_content, int index) {
   for (i=0; index_count <= index; i++) {
     if (nb_content[i] == '<' && i+4 < strlen(nb_content)) {
       should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
-      i += 4;
+      i += 4; // it's the end of some result, so start scanning what comes next
     }
-    if (i >= strlen(nb_content)) break;
-    if (should_ignore) continue;
+    if (i >= strlen(nb_content)) break; // it's end of file
+    if (should_ignore) continue; // skips to the next line
     if (nb_content[i] == '>' && i+4 < strlen(nb_content)) {
       should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
-      continue;
+      continue; // if it's >>>>, can skip this line
     }
     if (index_count == index) bytes++;
     if (nb_content[i] == '$') its_command = 1;
@@ -188,18 +189,23 @@ char* read_lines_notebook(char* nb_content, int index) {
 char* get_all_commands(char* nb_content) {
   int i=0, size = 0, pos = 0;
   char* lines, *commands;
-  
+
   do {
     if (i != 0) {
       while (pos < strlen(lines)) {
-        int bytes = next_line(lines + pos);
+        int bytes = next_line(lines + pos); // bytes until next line
+        // If it's command
         if (lines[pos] == '$') {
+          // If it's first time, allocs memory to commands
           if (size == 0) {
             commands = (char*) malloc(sizeof(char) * (bytes+1));
             strncpy(commands, lines+pos, bytes);
             // puts(commands);
-          } else {
-            char* tmp_ptr = (char*) realloc(commands, sizeof(char) * (size+bytes+1));
+          }
+          // Else, allocs more memory
+          else {
+            char* tmp_ptr = malloc(sizeof(char)*(size+bytes+1));
+            memcpy(tmp_ptr,commands,size);
             if (tmp_ptr) commands = tmp_ptr;
             else return NULL;
             strncat(commands, lines+pos, bytes);
@@ -209,13 +215,11 @@ char* get_all_commands(char* nb_content) {
         }
         pos += bytes;
       }
-      free(lines);
     }
     lines = read_lines_notebook(nb_content, i);
     pos = 0; i++;
   } while (lines);
 
-  free(lines);
   return commands;
 }
 
@@ -230,7 +234,7 @@ char* get_command (char* command_str) {
   int pos;
   for(pos=0; pos < strlen(command_str); pos++)
     if (command_str[pos] == ' ') {
-      pos++; 
+      pos++;
       break;
     }
   int bytes;
@@ -246,9 +250,10 @@ char* get_command (char* command_str) {
 int set_command(COMMAND c, char* commands, int n_comm, int index) {
   int i, pos;
   for(i=0, pos=0; i<n_comm; i++, pos+=next_line(commands+pos)) {
+    // It's the command to be set
     if (i == index) {
       c->index = index;
-      c->command = get_command(commands+pos);
+      c->command = get_command(commands+pos); // gets the command at the bytecount given by pos
       c->input_from_whom = index - get_how_many_commands_above(commands+pos+1);
       c->how_many_need_output = 0;
     } else if (i > index) {
@@ -262,7 +267,7 @@ int set_command(COMMAND c, char* commands, int n_comm, int index) {
         }
         c->who_needs_output[c->how_many_need_output] = i;
         c->how_many_need_output++;
-      } 
+      }
     }
   }
 
@@ -270,14 +275,14 @@ int set_command(COMMAND c, char* commands, int n_comm, int index) {
 }
 
 void print_struct_command (COMMAND c) {
-    printf("Index: %d; Input from who: %d; How many need output: %d; " 
+    printf("Index: %d; Input from who: %d; How many need output: %d; "
     , c->index, c->input_from_whom, c->how_many_need_output);
     printf("Who needs output: ");
     for (int i=0; i<c->how_many_need_output; i++) {
       printf("%d", c->who_needs_output[i]);
       if (i != c->how_many_need_output-1)
         printf(" ");
-      else 
+      else
         printf("; ");
     }
     printf("Command: %s\n", c->command);
@@ -333,15 +338,16 @@ int write_to_output_pipe_command (char* pipe_prefix, COMMAND c) {
     return -1;
   }
 
-  // if (c->index != c->input_from_whom) 
+  // if (c->index != c->input_from_whom)
     // puts("Input pipe sould be read!");
   // puts("Output pipe open! Initiating writing!");
 
   dup2(fdw, 1);
   close(fdw);
   execute_single_command(c->command);
-  
+
   free(path_to_pipe_output);
+  // if receives input from other pipes, unlinks it
   if (c->index != c->input_from_whom) {
     char* path_to_pipe_input = get_path_input(pipe_prefix, c->input_from_whom, c->index);
     unlink(path_to_pipe_input);
@@ -374,7 +380,7 @@ int write_in_input_pipes (char* pipe_prefix, COMMAND c, char* buffer) {
           close(fdw);
         }
         free(path_to_input_pipe);
-        _exit(0); 
+        _exit(0);
       } default:
         break;
     }
@@ -386,8 +392,8 @@ int write_to_pipe_to_file (char* file_prefix, int index, char* buffer) {
     case -1:
       perror("Couldn't create fork!");
       _exit(-1);
-    case 0: {      
-      int fdw; 
+    case 0: {
+      int fdw;
       char*  path_to_file = get_path_output(file_prefix, index);
       mkfifo(path_to_file, 0666);
       fdw = open(path_to_file, O_WRONLY);
@@ -412,7 +418,7 @@ int write_to_pipe_to_file (char* file_prefix, int index, char* buffer) {
 
 int append_to_file (char* path_to_file, char* buffer) {
   int fdw;
-  
+
   if ((fdw = open(path_to_file, O_CREAT|O_WRONLY|O_APPEND, 0666)) < 0) {
     char str_err[strlen(path_to_file) + 20];
     sprintf(str_err, "Couldn't open file: %s", path_to_file);
@@ -455,7 +461,7 @@ int execute_command_create_pipes (char* pipe_prefix, char* file_prefix, COMMAND 
       perror("Couldn't create fork!");
       _exit(-1);
     case 0: {
-      if (c->index != c->input_from_whom) duplicate_pipe(pipe_prefix, c);        
+      if (c->index != c->input_from_whom) duplicate_pipe(pipe_prefix, c);
       write_to_output_pipe_command(pipe_prefix, c);
       _exit(0);
     }
@@ -529,7 +535,7 @@ int read_notebook (char* path_to_file) {
   char prefix_to_pipe[strlen(PATH_TO_FOLDER) + 5];
   char prefix_to_pipe_of_output[strlen(PATH_TO_FOLDER) + 7];
   char path_to_temporary_final_file[strlen(PATH_TO_FOLDER) + 6];
-  
+
   sprintf(prefix_to_pipe, "%s/Pipe", PATH_TO_FOLDER);
   sprintf(prefix_to_pipe_of_output, "%s/Output", PATH_TO_FOLDER);
   sprintf(path_to_temporary_final_file, "%s/Final", PATH_TO_FOLDER);
@@ -558,19 +564,19 @@ int read_notebook (char* path_to_file) {
     free(commands[i]);
   }
 
-  pause();
+  //pause();
 
   free(str_commands);
 
   for (int i=0; i<n_comm; i++) {
     char* lines = read_lines_notebook(nb_content, i);
     append_to_file(path_to_temporary_final_file, lines);
-    free(lines);
+    //free(lines);
     append_to_file(path_to_temporary_final_file, ">>>\n");
     append_to_file_output(path_to_temporary_final_file, prefix_to_pipe_of_output, i);
     append_to_file(path_to_temporary_final_file, "<<<\n");
   }
-  
+
   free(nb_content);
 
   replace_file(path_to_file, path_to_temporary_final_file);
@@ -579,7 +585,7 @@ int read_notebook (char* path_to_file) {
 }
 
 char* get_folder_path (char* folder_prefix) {
-  struct stat st = {0};      
+  struct stat st = {0};
   char* path = NULL;
   do {
     if (path != NULL) free(path);
@@ -604,13 +610,12 @@ int init_program (char* path_name) {
       return(-1);
     case 0: {
       signal(SIGINT, handler_children);
-      read_notebook(path_name);   
-      rmdir(path);   
+      read_notebook(path_name);
+      rmdir(path);
       _exit(0);
     } default:
       wait(NULL);
       PATH_TO_FOLDER = NULL;
-      free(path);
       break;
   }
   return 0;
