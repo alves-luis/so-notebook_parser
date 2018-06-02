@@ -46,11 +46,12 @@ José Costa (A82136)\\\\
 		supra mencionadas, corremos um ciclo de execução para cada um, podendo eles
 		correr concorrentemente.
 		\par Criamos então um filho, que, caso não requeira o output de nenhum comando,
-		executa regularmente tendo o output redirecionado para um pipe de output. Caso
+		executa regularmente tendo o output redirecionado para um pipe de output simples. Caso
 		requeira o output de outro comando, duplica um pipe para o input do comando a executar.
 		\par Após a execução, o pai lê o output do filho e coloca esse output noutro conjunto
 		de pipes, um para cada comando que vá precisar deste output como input, e um outro
-		que servirá para colocar este output no notebook final.
+		que servirá para colocar este output no notebook final. O output original (que estava num pipe),
+		é logo libertado.
 
 	\subsection{Pipes e Pastas}
 		\tab Para guardarmos os resultados intermédios (ver acima), necessitamos de guardar
@@ -59,7 +60,8 @@ José Costa (A82136)\\\\
 		\par Os Pipes de Input têm o seguinte formato: Pipe\_f\_t, sendo
 		f o index do comando que fornece o output para o comando de index t (que necessita do conteúdo do pipe como input).
 		\par Já os Pipes de output simples, têm o formato Pipe\_t, sendo t o index do output
-		do comando n.
+		do comando n. São esses pipes (um por comando) que contêm o conteúdo que irá depois ser dirigido para os pipes
+		de escrita no notebook (1), e os pipes de input de outros comandos.
 		\par De forma a não alterarmos o ficheiro em caso de término precoce (usando CTRL+C),
 		criamos apenas um ficheiro temporário final no fim do processamento de todos os comandos,
 		sendo que apenas terminado esse processo, esse ficheiro é copiado para o ficheiro
@@ -70,9 +72,8 @@ José Costa (A82136)\\\\
 		que não conseguimos remover a tempo da entrega:
 			\begin{itemize}
 				\item Outputs de tamanho superior a 65k (tamanho de um pipe com nome)
-				\item Comandos que contenham pipes (comando1 | comando2)
+				\item Comandos que contenham pipes (comando1 $|$ comando2)
 				\item Por vezes não é possível eliminar as pastas criadas no /tmp
-				\item Comandos que não terminem não forçam o término do processamento
 				\item Outros erros esporádicos
 			\end{itemize}
 		\par Com os outros erros esporádicos, queremos indicar que por vezes, há notebooks

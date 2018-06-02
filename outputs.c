@@ -54,12 +54,12 @@ char* read_from_file (char* path_to_file) {
   // Using a pipe to establish communication between parent and child
   int pipe_fd[2];
   pipe(pipe_fd);
-  
+
   // Forking
   switch (fork()) {
     case -1:
       perror("Couldn't create fork!");
-      kill(0, SIGINT);  
+      kill(0, SIGINT);
     case 0:
       // Child executing the command to count the bytes and redirecting the output to the pipe
       close(pipe_fd[0]);
@@ -77,8 +77,8 @@ char* read_from_file (char* path_to_file) {
       sscanf(str, "%d", &byte_count);
     }
   }
-  
-  // Allocating the memory necessary (acording to the byte_count returned by the 'wc' command) and reading to that memory the file 
+
+  // Allocating the memory necessary (acording to the byte_count returned by the 'wc' command) and reading to that memory the file
   char* contents = malloc(sizeof(char)*(byte_count));
   read(fd, contents, byte_count);
   close(fd);
@@ -87,7 +87,7 @@ char* read_from_file (char* path_to_file) {
   return contents;
 }
 
-// This counts how many arguments a command in the format of string has 
+// This counts how many arguments a command in the format of string has
 int count_args (char* command) {
   int i, count=0, its_command = 0;
 
@@ -108,7 +108,7 @@ int get_args (char* command, int n_args, char* args[]) {
   // Index will count how many args have been read
   for(i=0, bytes=0, index=0; i < strlen(command) && index<n_args; i++) {
     // Only commands with characters in between [34,125] of the ASCII table are considered valid, so any other is considered a separator between arguments
-    if (command[i] < 33 || command[i] > 126) { 
+    if (command[i] < 33 || command[i] > 126) {
       if (bytes != 0) {
         // Allocating memory acording to bytes and copying the arg to the array
         char* arg = malloc(sizeof(char)* bytes+1);
@@ -133,7 +133,7 @@ int get_args (char* command, int n_args, char* args[]) {
   return (index == n_args) ? 0 : -1;
 }
 
-// Executes a command by its string 
+// Executes a command by its string
 void execute_single_command (char* command) {
   // Counting how many arguments its got
   int n_args = count_args (command);
@@ -204,7 +204,7 @@ char* read_lines_notebook(char* nb_content, int index) {
     // Checking if an ignore state must be set
     if (nb_content[i] == '>' && i+4 < strlen(nb_content)) {
       should_ignore = should_ignore_or_not(nb_content + i, should_ignore);
-      continue; 
+      continue;
     }
     // If the index of the lines matches the index that was initially intended, bytes starts counting
     if (index_count == index) bytes++;
@@ -271,7 +271,7 @@ int get_how_many_commands_above (char* command) {
   return number;
 }
 
-// Isolates a command from the string containing all the commands and returning it 
+// Isolates a command from the string containing all the commands and returning it
 char* get_command (char* command_str) {
   int pos;
   for(pos=0; pos < strlen(command_str); pos++)
@@ -294,7 +294,7 @@ char* get_command (char* command_str) {
 int set_command(COMMAND c, char* commands, int n_comm, int index) {
   int i, pos;
   for(i=0, pos=0; i<n_comm; i++, pos+=next_line(commands+pos)) {
-    // If the index matches most attributes are set (index, the command string, the index of the command whose output is needed) 
+    // If the index matches most attributes are set (index, the command string, the index of the command whose output is needed)
     if (i == index) {
       c->index = index;
       c->command = get_command(commands+pos);
@@ -379,7 +379,7 @@ int duplicate_pipe (char* pipe_prefix, COMMAND c) {
   return 0;
 }
 
-// Executes the command and redirects its output to a pipe of output 
+// Executes the command and redirects its output to a pipe of output
 int write_to_output_pipe_command (char* pipe_prefix, COMMAND c) {
   int fdw;
   char* path_to_pipe_output = get_path_output(pipe_prefix, c->index);
@@ -402,7 +402,7 @@ int write_to_output_pipe_command (char* pipe_prefix, COMMAND c) {
   // If input was necessary, the input pipe is no longer necessary (it's unlinked)
   if (c->index != c->input_from_whom) {
     char* path_to_pipe_input = get_path_input(pipe_prefix, c->input_from_whom, c->index);
-    unlink(path_to_pipe_input); 
+    unlink(path_to_pipe_input);
     free(path_to_pipe_input);
   }
   return 0;
@@ -527,7 +527,7 @@ int execute_command_create_pipes (char* pipe_prefix, char* file_prefix, COMMAND 
     default:
       output_pipe_to_pipes_files(pipe_prefix, file_prefix, c); // Reads the output pipe and spreads its message
       char* path_out = get_path_output(pipe_prefix, c->index);
-      unlink(path_out); // Deletes the pipe of output 
+      unlink(path_out); // Deletes the pipe of output
       free(path_out);
       break;
     }
@@ -575,7 +575,7 @@ void append_to_file_output (char* path_of_file, char* prefix_to_output, int inde
       for (int i=0; i<pipe_size; i++) buffer[i] = 0;
     }
   }
-  // Deleting the leftover pipe 
+  // Deleting the leftover pipe
   unlink(path_to_output_of_index);
   free(path_to_output_of_index);
 }
@@ -585,7 +585,7 @@ void replace_file (char* path_to_file, char* path_to_temp_file) {
   char* final_content = read_from_file(path_to_temp_file); // Reading from the temporary file
 
   int fdw;
-  // Opening the initial file by truncating it 
+  // Opening the initial file by truncating it
   if ((fdw = open(path_to_file, O_WRONLY|O_TRUNC)) < 0) {
     char str_err[strlen(path_to_file) + 20];
     sprintf(str_err, "Couldn't open pipe: %s", path_to_file);
@@ -641,7 +641,7 @@ int read_notebook (char* path_to_file) {
   // Reading the output of the commands to a temporary file that will replace the initial's notebook content with its own
   for (int i=0; i<n_comm; i++) {
     char* lines = read_lines_notebook(nb_content, i);
-    append_to_file(path_to_temporary_final_file, lines); // Appending the useful lines 
+    append_to_file(path_to_temporary_final_file, lines); // Appending the useful lines
     append_to_file(path_to_temporary_final_file, ">>>\n"); // Setting the 'start of output' separator
     append_to_file_output(path_to_temporary_final_file, prefix_to_pipe_of_output, i); // Appending the output of the command of index i
     append_to_file(path_to_temporary_final_file, "<<<\n"); // Setting the 'end of output' separator
@@ -666,7 +666,7 @@ char* get_folder_path (char* folder_prefix) {
   return path;
 }
 
-// Initiates the program by setting signal catchers for the parent process and all of its offspring and its offspring's offspring and its offspring's offspring's offspring and so on 
+// Initiates the program by setting signal catchers for the parent process and all of its offspring and its offspring's offspring and its offspring's offspring's offspring and so on
 int init_program (char* path_name) {
   // Initiates the PATH_TO_FOLDER as NULL so that the signal catcher knows if there is a folder to delete
   PATH_TO_FOLDER = NULL;
@@ -676,7 +676,6 @@ int init_program (char* path_name) {
   char* path = get_folder_path("/tmp/SO");
   mkdir(path, 0777); // Creating the folder where the temporary files will be kept
   PATH_TO_FOLDER = path;
-  printf("Path: %s;\n", PATH_TO_FOLDER);
 
   switch (fork()) {
      case -1:
