@@ -1,4 +1,24 @@
 Este comando lista os ficheiros:
 $ ls
+>>>
+Makefile
+README.md
+exemplo.nb
+exemplo2.nb
+exemplo2_not_processed.nb
+exemplo3.nb
+exemplo4.nb
+exemplo4_np.nb
+exemplo_np.nb
+notebook
+outputs.c
+outputs.o
+program
+report.pdf
+report.tex
+<<<
 E este escolhe o primeiro:
 $| head -1
+>>>
+Makefile
+<<<

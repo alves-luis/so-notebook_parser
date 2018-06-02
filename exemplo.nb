@@ -8,6 +8,7 @@ exemplo2.nb
 exemplo2_not_processed.nb
 exemplo3.nb
 exemplo4.nb
+exemplo4_np.nb
 exemplo_np.nb
 outputs.c
 outputs.o
@@ -23,6 +24,7 @@ exemplo2.nb
 exemplo2_not_processed.nb
 exemplo3.nb
 exemplo4.nb
+exemplo4_np.nb
 exemplo_np.nb
 outputs.c
 outputs.o
