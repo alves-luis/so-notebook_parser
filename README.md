@@ -1,11 +1,9 @@
-SO Project made by:
+# SO - Notebook Parser
+This repo contains code made for the practical assignment of the Operating Systems course in the University of Minho.
 
-	- José Costa
-	- Luís Alves
-	- Miguel Carvalho
+Team members:
+* [Luís Alves](https://github.com/alves-luis)
+* [Miguel Carvalho](https://github.com/MAACarvalho)
+* [José Costa](https://github.com/DeusTaNoComando)
 
-And brought you by:
-
-	- RedBull
-	- GitHub
-	- The Willingness to pass the semester
+Final grade: 18
